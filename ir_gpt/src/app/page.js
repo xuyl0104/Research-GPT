@@ -1,6 +1,10 @@
 "use client"
 import React, { useState, useRef, useEffect } from "react";
 import ReactMarkdown from "react-markdown";
+import remarkMath from "remark-math";
+import rehypeKatex from "rehype-katex";
+import 'katex/dist/katex.min.css';
+
 
 export default function ChatUI() {
   const [files, setFiles] = useState([]);
@@ -21,6 +25,8 @@ export default function ChatUI() {
   const [selectedEmbedding, setSelectedEmbedding] = useState("");
   const [showEmbeddingDropdown, setShowEmbeddingDropdown] = useState(false);
   const [error, setError] = useState(null);
+  const bottomRef = useRef(null);
+
 
   useEffect(() => {
     const handleMouseMove = (e) => {
@@ -55,6 +61,13 @@ export default function ChatUI() {
       }
     }
   }, [selectedFileChunks]);
+
+  useEffect(() => {
+    if (bottomRef.current) {
+      bottomRef.current.scrollIntoView({ behavior: "smooth" });
+    }
+  }, [messages]);
+
 
   const scrollToChunk = async (chunkId, filename) => {
     const el = document.getElementById(chunkId);
@@ -287,27 +300,50 @@ export default function ChatUI() {
           <h2 className="text-lg font-semibold mb-4">Uploaded Files</h2>
 
           {/* sidebar-buttons */}
-          <div className="space-y-2 mb-4">
-            <label className="w-full bg-blue-500 text-white py-2 rounded mb-2 text-center block cursor-pointer">
-              Upload Files
-              <input type="file" multiple onChange={handleFileUpload} className="hidden" />
-            </label>
-            <button
-              onClick={handleEmbedding}
-              className="w-full bg-green-500 hover:bg-green-600 text-white py-2 rounded mb-4"
-            >
-              Embedding
-            </button>
+          <div className="space-y-6 mb-6">
 
-            <button
-              onClick={handleLoadSavedEmbedding}
-              className="w-full bg-purple-500 hover:bg-purple-600 text-white py-2 rounded mb-4"
-            >
-              Load Saved Embedding
-            </button>
+            {/* Group 1: Upload Files + Embedding */}
+            <div className="flex gap-x-2">
+              <label className="flex-1 bg-blue-500 hover:bg-blue-600 text-white py-2 rounded text-center cursor-pointer flex items-center justify-center gap-2">
+                📁 Upload
+                <input type="file" multiple onChange={handleFileUpload} className="hidden" />
+              </label>
 
+              <button
+                onClick={handleEmbedding}
+                className="flex-1 bg-green-500 hover:bg-green-600 text-white py-2 rounded flex items-center justify-center gap-2"
+              >
+                🧩 Embed
+              </button>
+            </div>
+
+            {/* Group 2: Load + Unload + Delete */}
+            <div className="flex gap-x-2">
+              <button
+                onClick={handleLoadSavedEmbedding}
+                className="flex-1 bg-purple-400 hover:bg-purple-500 text-white py-2 rounded flex items-center justify-center gap-2"
+              >
+                🔄 Load
+              </button>
+
+              <button
+                onClick={handleUnloadEmbedding}
+                className="flex-1 bg-yellow-400 hover:bg-yellow-500 text-white py-2 rounded flex items-center justify-center gap-2"
+              >
+                🚪 Unload
+              </button>
+
+              <button
+                onClick={handleDeleteEmbedding}
+                className="flex-1 bg-gray-300 hover:bg-gray-400 text-gray-700 py-2 rounded text-sm flex items-center justify-center gap-2"
+              >
+                🗑️ Delete
+              </button>
+            </div>
+
+            {/* Optional: Load Dropdown */}
             {showEmbeddingDropdown && (
-              <div className="mb-4">
+              <div className="mt-2">
                 <select
                   className="w-full border rounded p-2"
                   onChange={(e) => handleSelectEmbedding(e.target.value)}
@@ -321,27 +357,14 @@ export default function ChatUI() {
               </div>
             )}
 
-
-            <button
-              onClick={handleUnloadEmbedding}
-              className="w-full bg-yellow-500 hover:bg-yellow-600 text-white py-2 rounded mb-4"
-            >
-              Unload Embedding
-            </button>
-
-            <button
-              onClick={handleDeleteEmbedding}
-              className="w-full bg-red-500 hover:bg-red-600 text-white py-2 rounded mb-4"
-            >
-              Delete Embedding
-            </button>
-
-            {embeddingStatus && <p className="text-xs text-center text-gray-600 italic mb-4">{embeddingStatus}</p>}
+            {/* Embedding Status */}
+            {embeddingStatus && (
+              <p className="text-xs text-center text-gray-600 italic mt-2">{embeddingStatus}</p>
+            )}
 
           </div>
 
           {/* sidebar-Scrollable File List */}
-
           <div className="flex-1 overflow-y-auto">
             <ul className="space-y-2 text-sm text-gray-700">
               {files.map((file, idx) => (
@@ -370,7 +393,10 @@ export default function ChatUI() {
         {/* header line - ChatBot */}
         <div className="flex-1 flex flex-col">
           <header className="p-4 border-b flex items-center justify-between">
-            <h1 className="text-xl font-bold">ChatBot</h1>
+            <h1 className="text-xl font-bold">
+              ChatBot {selectedEmbedding && <span className="text-sm text-gray-500 ml-2">({selectedEmbedding})</span>}
+            </h1>
+
             <button className="md:hidden bg-gray-200 px-2 py-1 rounded">☰</button>
           </header>
 
@@ -395,16 +421,30 @@ export default function ChatUI() {
                     } p-3 rounded-xl whitespace-pre-wrap max-w-full break-words`}
                 >
                   <ReactMarkdown
+                    remarkPlugins={[remarkMath]}
+                    rehypePlugins={[rehypeKatex]}
                     components={{
-                      code({ node, inline, className, children, ...props }) {
-                        return inline
-                          ? <code className="bg-gray-100 rounded px-1">{children}</code>
-                          : <pre className="whitespace-pre-wrap break-words bg-gray-100 rounded p-2 overflow-x-auto">{children}</pre>;
+                      p({ children }) {
+                        return <p className="mb-2">{children}</p>;
                       },
+                      code({ node, inline, className, children, ...props }) {
+                        if (inline) {
+                          return <code className="bg-gray-100 rounded px-1">{children}</code>;
+                        }
+                        return (
+                          <div className="my-2">
+                            <pre className="whitespace-pre-wrap break-words bg-gray-100 rounded p-2 overflow-x-auto">
+                              {children}
+                            </pre>
+                          </div>
+                        );
+                      }
                     }}
                   >
                     {msg.content}
                   </ReactMarkdown>
+
+
                 </div>
                 {msg.evidence && msg.evidence.length > 0 && (
                   <ul className="mt-1 text-sm text-blue-600">
@@ -452,6 +492,8 @@ export default function ChatUI() {
                 <div className="w-2 h-2 bg-gray-500 rounded-full animate-bounce" />
               </div>
             </div>
+
+            <div ref={bottomRef} />
           </main>
 
           {/* user input */}
