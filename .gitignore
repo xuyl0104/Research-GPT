@@ -1,5 +1,8 @@
 __pycache__/
 .vscode/
 node_modules/
+documents/
+*.pkl
+*.index
 ir_gpt-Copy
 .DS_Store
