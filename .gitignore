@@ -1,0 +1,5 @@
+__pycache__/
+.vscode/
+node_modules/
+ir_gpt-Copy
+.DS_Store

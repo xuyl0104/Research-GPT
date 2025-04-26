@@ -1,0 +1,11 @@
+Steps to run the project:
+
+- frontend: 
+    inside the folder ir_gpt, run 'npm run dev'
+
+- backend:
+    inside the folder ir_gpt/src/backend, run 'python app.py'
+
+- embedding server:
+    in WSL2 of windows, inside folder ~/projects/local_embed_server, run 'docker-compose up -d' to start embedding server
+    run 'docker-compose down' to shut down server
