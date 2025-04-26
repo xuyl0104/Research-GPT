@@ -86,6 +86,8 @@ def extract_text_from_file(file_path):
         return ""
 
 def split_text(text, chunk_size=10240):
+    if chunk_size <= 0:
+        chunk_size = 500  # fallback chunk size
     return [text[i:i + chunk_size] for i in range(0, len(text), chunk_size)]
 
 async def load_document_chunks(directory, chunk_size=10240):
@@ -117,6 +119,7 @@ async def get_text_embedding_async(input_text):
             embedding = data["data"][0]["embedding"]
             return embedding
 
+# TODO: embedding using mistral, may need to delete
 async def get_text_embedding_async_bk(input_text):
     await asyncio.sleep(2)
     loop = asyncio.get_running_loop()
@@ -141,6 +144,7 @@ async def run_mistral_async(user_message, model="mistral-large-latest"):
     )
     return chat_response.choices[0].message.content
 
+# TODO: delete, not used
 async def build_index_from_directory(documents_dir, chunk_size=10240):
     chunks = await load_document_chunks(documents_dir, chunk_size)
     print(f"Total chunks extracted: {len(chunks)}")

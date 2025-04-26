@@ -35,6 +35,8 @@ def embed_files():
         max_size = max(max_size, os.path.getsize(save_path))
 
     chunk_size = min(max_size, 8000)
+    if chunk_size <= 0:
+        chunk_size = 500  # fallback safe chunk size
     asyncio.run(update_index(docs_dir, chunk_size, emb_dir, append))
     return jsonify({"status": "success", "message": f"Embedded in '{name}'"})
 

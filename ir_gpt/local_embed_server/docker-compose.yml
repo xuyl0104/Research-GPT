@@ -1,0 +1,19 @@
+version: "3.9"
+
+services:
+  embed-api:
+    build: .
+    container_name: embed-server
+    ports:
+      - "8000:8000"
+    volumes:
+      - ~/.cache/huggingface:/root/.cache/huggingface
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - capabilities: [gpu]
+    runtime: nvidia
+    environment:
+      TRANSFORMERS_CACHE: /root/.cache/huggingface
+      HUGGINGFACE_HUB_CACHE: /root/.cache/huggingface
