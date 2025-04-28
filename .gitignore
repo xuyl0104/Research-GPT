@@ -6,3 +6,4 @@ documents/
 *.index
 ir_gpt-Copy
 .DS_Store
+config.json
