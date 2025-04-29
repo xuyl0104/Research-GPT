@@ -134,7 +134,7 @@ async def get_text_embedding_async_bk(input_text):
     return result.data[0].embedding
 
 async def run_mistral_async(user_message, model="mistral-large-latest"):
-    await asyncio.sleep(2)
+    await asyncio.sleep(1)
     loop = asyncio.get_running_loop()
     chat_response = await loop.run_in_executor(
         None,

@@ -1,13 +1,11 @@
-# Flask backend: simplified /ask route using chatbot.answer_question with 15s timeout handling
-
-from flask import Flask, request, jsonify, Response
+from flask import Flask, request, jsonify, Response, send_from_directory
 from flask_cors import CORS
 import faiss
 import os
 import numpy as np
 import pickle
 import asyncio
-from chatbot import update_index, extract_text_from_file, split_text, load_document_chunks, get_text_embedding_async,answer_question
+from chatbot import extract_text_from_file, split_text, load_document_chunks, get_text_embedding_async, answer_question
 import memory
 
 UPLOAD_DIR = "documents"
@@ -153,6 +151,40 @@ def ask_question():
     # Call async function properly
     result = asyncio.run(answer_question(user_question))
     return jsonify({"answer": result[0], "evidence": result[1]})
+
+
+@app.route("/preview-file")
+def preview_file():
+    filename = request.args.get("filename")
+    embedding_name = request.args.get("embeddingName")
+
+    if not filename or not embedding_name:
+        return jsonify({"error": "Missing filename or embeddingName"}), 400
+
+    file_dir = os.path.join("embeddings", embedding_name, "documents")
+    if not os.path.exists(os.path.join(file_dir, filename)):
+        return jsonify({"error": "File not found"}), 404
+
+    return send_from_directory(file_dir, filename, as_attachment=False)
+
+
+def get_content_type(filename):
+    if filename.endswith(".pdf"):
+        return "application/pdf"
+    elif filename.endswith(".png"):
+        return "image/png"
+    elif filename.endswith(".jpg") or filename.endswith(".jpeg"):
+        return "image/jpeg"
+    elif filename.endswith(".gif"):
+        return "image/gif"
+    elif filename.endswith(".csv"):
+        return "text/csv"
+    elif filename.endswith(".txt"):
+        return "text/plain"
+    elif filename.endswith(".md"):
+        return "text/markdown"
+    else:
+        return "application/octet-stream"
 
 
 @app.route("/preview-chunks")

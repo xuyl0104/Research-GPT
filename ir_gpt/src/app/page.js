@@ -5,7 +5,6 @@ import remarkMath from "remark-math";
 import rehypeKatex from "rehype-katex";
 import 'katex/dist/katex.min.css';
 
-
 export default function ChatUI() {
   const [files, setFiles] = useState([]);
   const [messages, setMessages] = useState([]);
@@ -36,6 +35,10 @@ export default function ChatUI() {
   // load button and embedding list
   const loadRef = useRef(null);
   const [showDropdown, setShowDropdown] = useState(false);
+
+  // file preview area
+  const [previewedFileContent, setPreviewedFileContent] = useState(null);
+  const [previewedFileName, setPreviewedFileName] = useState(null);
 
 
   useEffect(() => {
@@ -176,6 +179,12 @@ export default function ChatUI() {
     }));
     setFiles((prev) => [...prev, ...uploadedFiles]);
   };
+
+  const handleFileClick = (file) => {
+    setPreviewedFileName(file.name);
+    setPreviewedFileContent(`http://localhost:5000/preview-file?filename=${encodeURIComponent(file.name)}&embeddingName=${encodeURIComponent(selectedEmbedding)}`);
+  };
+
 
   const handleEmbedding = async () => {
     const name = prompt("Enter a name for this new embedding session:");
@@ -457,7 +466,7 @@ export default function ChatUI() {
                   key={idx}
                   onClick={() => {
                     setActiveFile(file.name);
-                    handlePreviewChunks(file);
+                    handleFileClick(file);
                   }}
                   className={`flex items-center justify-between p-3 rounded-lg cursor-pointer transition-colors ${activeFile === file.name ? 'bg-blue-50' : 'hover:bg-gray-100'
                     }`}
@@ -499,132 +508,176 @@ export default function ChatUI() {
 
         {/* header line - ChatBot */}
         <div className="flex-1 flex flex-col">
+          {/* Header */}
           <header className="p-4 border-b flex items-center justify-between">
             <h1 className="text-xl font-bold">
               ChatBot {selectedEmbedding && <span className="text-sm text-gray-500 ml-2">({selectedEmbedding})</span>}
             </h1>
-
             <button className="md:hidden bg-gray-200 px-2 py-1 rounded">☰</button>
           </header>
 
-          {/* messages display */}
-          <main className="flex-1 overflow-y-auto p-4 space-y-4" id="chat">
-            {messages.map((msg, idx) => (
-              <div
-                key={idx}
-                className={`flex flex-col gap-1 ${msg.from === "user" ? "items-end" : "items-start"}`}
-              >
-                {msg.from === "bot" && (
-                  <img
-                    src={`https://api.dicebear.com/7.x/personas/svg?seed=${msg.from}`}
-                    className="w-8 h-8 rounded-full"
-                    alt={msg.from}
-                  />
-                )}
-                <div
-                  className={`${msg.from === "user"
-                    ? "bg-blue-100 text-right w-1/2"
-                    : "bg-gray-200 w-[85%]"
-                    } p-3 rounded-xl whitespace-pre-wrap max-w-full break-words`}
-                >
-                  <ReactMarkdown
-                    remarkPlugins={[remarkMath]}
-                    rehypePlugins={[rehypeKatex]}
-                    components={{
-                      p({ children }) {
-                        return <p className="mb-2">{children}</p>;
-                      },
-                      code({ node, inline, className, children, ...props }) {
-                        if (inline) {
-                          return <code className="bg-gray-100 rounded px-1">{children}</code>;
-                        }
-                        return (
-                          <div className="my-2">
-                            <pre className="whitespace-pre-wrap break-words bg-gray-100 rounded p-2 overflow-x-auto">
-                              {children}
-                            </pre>
-                          </div>
-                        );
-                      }
-                    }}
+          {/* Main area: Chat + Preview split */}
+          <div className="flex-1 flex overflow-hidden">
+
+            {/* Left: Chat messages and input */}
+            <div className={`flex flex-col transition-all duration-300 ${previewedFileContent ? "w-1/2" : "w-full"}`}>
+              {/* Messages */}
+              <main className="flex-1 overflow-y-auto p-4 space-y-4" id="chat">
+                {messages.map((msg, idx) => (
+                  <div
+                    key={idx}
+                    className={`flex flex-col gap-1 ${msg.from === "user" ? "items-end" : "items-start"}`}
                   >
-                    {msg.content}
-                  </ReactMarkdown>
+                    {msg.from === "bot" && (
+                      <img
+                        src={`https://api.dicebear.com/7.x/personas/svg?seed=${msg.from}`}
+                        className="w-8 h-8 rounded-full"
+                        alt={msg.from}
+                      />
+                    )}
+                    <div
+                      className={`${msg.from === "user"
+                        ? "bg-blue-100 text-right w-1/2"
+                        : "bg-gray-200 w-[85%]"
+                        } p-3 rounded-xl whitespace-pre-wrap max-w-full break-words`}
+                    >
+                      <ReactMarkdown
+                        remarkPlugins={[remarkMath]}
+                        rehypePlugins={[rehypeKatex]}
+                        components={{
+                          p({ children }) {
+                            return <p className="mb-2">{children}</p>;
+                          },
+                          code({ node, inline, className, children, ...props }) {
+                            if (inline) {
+                              return <code className="bg-gray-100 rounded px-1">{children}</code>;
+                            }
+                            return (
+                              <div className="my-2">
+                                <pre className="whitespace-pre-wrap break-words bg-gray-100 rounded p-2 overflow-x-auto">
+                                  {children}
+                                </pre>
+                              </div>
+                            );
+                          }
+                        }}
+                      >
+                        {msg.content}
+                      </ReactMarkdown>
+                    </div>
 
+                    {/* Evidence */}
+                    {msg.evidence && msg.evidence.length > 0 && (
+                      <ul className="mt-1 text-sm text-blue-600">
+                        {msg.evidence.map((ev, i) => (
+                          <li key={i}>
+                            <button
+                              onClick={() => scrollToChunk(`chunk-${ev.filename}-${ev.chunk_index}`, ev.filename)}
+                              className="hover:underline"
+                              title={ev.text}
+                            >
+                              🔍 {ev.filename}, Chunk {ev.chunk_index + 1}
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                ))}
+                {error && <div className="text-red-600 text-sm max-w-full break-words">⚠ {error}</div>}
 
+                <div className="flex items-start gap-3 animate-pulse">
+                  <img
+                    src="https://api.dicebear.com/7.x/personas/svg?seed=bot"
+                    className="w-8 h-8 rounded-full"
+                    alt="Bot"
+                  />
+                  <div className="flex space-x-1 bg-gray-200 p-3 rounded-xl">
+                    <div className="w-2 h-2 bg-gray-500 rounded-full animate-bounce [animation-delay:-0.3s]" />
+                    <div className="w-2 h-2 bg-gray-500 rounded-full animate-bounce [animation-delay:-0.15s]" />
+                    <div className="w-2 h-2 bg-gray-500 rounded-full animate-bounce" />
+                  </div>
                 </div>
-                {msg.evidence && msg.evidence.length > 0 && (
-                  <ul className="mt-1 text-sm text-blue-600">
-                    {msg.evidence.map((ev, i) => (
-                      <li key={i}>
-                        <button
-                          onClick={() => scrollToChunk(`chunk-${ev.filename}-${ev.chunk_index}`, ev.filename)}
-                          className="hover:underline"
-                          title={ev.text}
-                        >
-                          🔍 {ev.filename}, Chunk {ev.chunk_index + 1}
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-            ))}
-            {error && <div className="text-red-600 text-sm max-w-full break-words">⚠ {error}</div>}
 
-            {selectedFileChunks.map((chunk, idx) => {
-              const fileName = files[0]?.name || "file";
-              const chunkId = `chunk-${fileName}-${idx}`;
-              return (
-                <li
-                  id={chunkId}
-                  key={chunkId}
-                  onClick={() => toggleChunkVisibility(chunkId)}
-                  className={`cursor-pointer p-2 bg-white rounded border shadow text-gray-800 transition-all duration-300 ${visibleChunks[chunkId] === false ? 'hidden' : ''}`}
+                <div ref={bottomRef} />
+              </main>
+
+              {/* Input */}
+              <form onSubmit={handleSend} className="p-4 border-t flex items-center gap-2">
+                <textarea
+                  value={input}
+                  onChange={(e) => setInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.ctrlKey && e.key === "Enter") {
+                      e.preventDefault();
+                      handleSend(e);
+                    }
+                  }}
+                  className="flex-1 resize-none border rounded-lg p-2 h-24 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="Type a message..."
+                ></textarea>
+                <button
+                  type="submit"
+                  className="bg-blue-500 text-white px-4 py-2 rounded-lg h-12"
                 >
-                  {chunk}
-                </li>
-              );
-            })}
-
-            <div className="flex items-start gap-3 animate-pulse">
-              <img
-                src="https://api.dicebear.com/7.x/personas/svg?seed=bot"
-                className="w-8 h-8 rounded-full"
-                alt="Bot"
-              />
-              <div className="flex space-x-1 bg-gray-200 p-3 rounded-xl">
-                <div className="w-2 h-2 bg-gray-500 rounded-full animate-bounce [animation-delay:-0.3s]" />
-                <div className="w-2 h-2 bg-gray-500 rounded-full animate-bounce [animation-delay:-0.15s]" />
-                <div className="w-2 h-2 bg-gray-500 rounded-full animate-bounce" />
-              </div>
+                  Send
+                </button>
+              </form>
             </div>
 
-            <div ref={bottomRef} />
-          </main>
+            {/* Right: File Preview */}
+            {previewedFileContent && (
+              <div className="w-1/2 flex flex-col border-l bg-gray-50 min-w-[300px]">
+                {/* Header */}
+                <div className="flex justify-between items-center px-4 py-2 border-b bg-white">
+                  <h2 className="text-base font-semibold truncate max-w-[calc(100%-2rem)]">
+                    📄 {previewedFileName}
+                  </h2>
+                  <button
+                    onClick={() => {
+                      setPreviewedFileContent(null);
+                      setPreviewedFileName(null);
+                    }}
+                    className="text-gray-400 hover:text-gray-600 flex-shrink-0"
+                  >
+                    ✖
+                  </button>
+                </div>
 
-          {/* user input */}
-          <form onSubmit={handleSend} className="p-4 border-t flex items-center gap-2">
-            <textarea
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.ctrlKey && e.key === "Enter") {
-                  e.preventDefault(); // prevent newline
-                  handleSend(e);
-                }
-              }}
-              className="flex-1 resize-none border rounded-lg p-2 h-24 focus:outline-none focus:ring-2 focus:ring-blue-500"
-              placeholder="Type a message..."
-            ></textarea>
-            <button
-              type="submit"
-              className="bg-blue-500 text-white px-4 py-2 rounded-lg h-12"
-            >
-              Send
-            </button>
-          </form>
+                {/* File Content */}
+                <div className="flex-1 overflow-auto p-2">
+                  {previewedFileName.endsWith(".pdf") ? (
+                    <iframe
+                      src={previewedFileContent}
+                      loading="lazy"
+                      className="w-full h-full rounded shadow"
+                      title="PDF Preview"
+                    />
+                  ) : previewedFileName.match(/\.(png|jpe?g|gif|bmp)$/) ? (
+                    <img
+                      src={previewedFileContent}
+                      alt="Preview"
+                      className="w-full max-h-[80vh] object-contain rounded shadow"
+                    />
+                  ) : previewedFileName.endsWith(".txt") || previewedFileName.endsWith(".csv") || previewedFileName.endsWith(".md") ? (
+                    <iframe
+                      src={previewedFileContent}
+                      loading="lazy"
+                      className="w-full h-full bg-white p-2 rounded shadow"
+                      title="Text Preview"
+                    />
+                  ) : (
+                    <div className="text-center text-gray-500 mt-10">
+                      No preview available
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+          </div>
         </div>
+
       </div>
     </div>
   );
