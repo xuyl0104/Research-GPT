@@ -1,44 +1,96 @@
 # Flask backend: simplified /ask route using chatbot.answer_question with 15s timeout handling
 
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, Response
 from flask_cors import CORS
+import faiss
 import os
+import numpy as np
+import pickle
 import asyncio
-from chatbot import update_index, extract_text_from_file, split_text, answer_question
+from chatbot import update_index, extract_text_from_file, split_text, load_document_chunks, get_text_embedding_async,answer_question
 import memory
 
 UPLOAD_DIR = "documents"
+EMBEDDING_DIR = "embeddings"
 
 app = Flask(__name__)
 CORS(app)
 
 @app.route("/embed-files", methods=["POST"])
 def embed_files():
-    import memory
-    import shutil
-
     name = request.args.get("name")
     append = request.args.get("append", "false").lower() == "true"
     if not name:
         return jsonify({"error": "Missing embedding name"}), 400
 
-    emb_dir = os.path.join("embeddings", name)
+    emb_dir = os.path.join(EMBEDDING_DIR, name)
     docs_dir = os.path.join(emb_dir, "documents")
     os.makedirs(docs_dir, exist_ok=True)
 
-    # Save uploaded files
     uploaded_files = request.files.getlist("files")
-    max_size = 0
     for file in uploaded_files:
         save_path = os.path.join(docs_dir, file.filename)
         file.save(save_path)
-        max_size = max(max_size, os.path.getsize(save_path))
 
-    chunk_size = min(max_size, 8000)
-    if chunk_size <= 0:
-        chunk_size = 500  # fallback safe chunk size
-    asyncio.run(update_index(docs_dir, chunk_size, emb_dir, append))
-    return jsonify({"status": "success", "message": f"Embedded in '{name}'"})
+    def stream_embedding():
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+
+        # Step 1: Load all chunks from uploaded documents
+        all_chunks = loop.run_until_complete(load_document_chunks(docs_dir, chunk_size=8000))
+
+        if not all_chunks:
+            yield "PROGRESS: 0/0\n"
+            yield '{"status": "error", "message": "No valid files found"}'
+            return
+
+        # Step 2: If appending, load existing index/chunks
+        faiss_path = os.path.join(emb_dir, "faiss.index")
+        chunks_path = os.path.join(emb_dir, "chunks.pkl")
+
+        if append and os.path.exists(faiss_path) and os.path.exists(chunks_path):
+            index = faiss.read_index(faiss_path)
+            with open(chunks_path, "rb") as f:
+                old_chunks = pickle.load(f)
+        else:
+            index = None
+            old_chunks = []
+
+        # Step 3: Embed each chunk and stream progress
+        new_embeddings = []
+        for idx, chunk in enumerate(all_chunks):
+            emb = loop.run_until_complete(get_text_embedding_async(chunk["text"]))
+            new_embeddings.append(emb)
+
+            yield f"PROGRESS: {idx + 1}/{len(all_chunks)}\n"
+
+        # Step 4: Build or update FAISS index
+        emb_array = np.array(new_embeddings, dtype=np.float32)
+        faiss.normalize_L2(emb_array)
+
+        if index:
+            start_id = len(old_chunks)
+            ids = np.arange(start_id, start_id + len(all_chunks)).astype(np.int64)
+            index.add_with_ids(emb_array, ids)
+            all_chunks = old_chunks + all_chunks
+        else:
+            dim = emb_array.shape[1]
+            index = faiss.IndexIDMap(faiss.IndexFlatIP(dim))
+            ids = np.arange(len(all_chunks)).astype(np.int64)
+            index.add_with_ids(emb_array, ids)
+
+        # Step 5: Save index and chunks
+        faiss.write_index(index, faiss_path)
+        with open(chunks_path, "wb") as f:
+            pickle.dump(all_chunks, f)
+
+        memory.global_index = index
+        memory.global_chunks = all_chunks
+
+        yield '{"status": "success", "message": "Embedding complete"}'
+
+    return Response(stream_embedding(), mimetype="text/plain")
+
 
 @app.route("/list-embeddings")
 def list_embeddings():

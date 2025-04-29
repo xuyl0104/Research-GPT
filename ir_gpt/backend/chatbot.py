@@ -108,7 +108,8 @@ async def load_document_chunks(directory, chunk_size=10240):
     return chunks
 
 async def get_text_embedding_async(input_text):
-    url = "http://host.docker.internal:8000/v1/embeddings"
+    # url = "http://host.docker.internal:8000/v1/embeddings"
+    url = "http://128.226.119.122:8000/v1/embeddings"
     headers = {"Content-Type": "application/json"}
     payload = {"input": input_text}
 
@@ -144,24 +145,6 @@ async def run_mistral_async(user_message, model="mistral-large-latest"):
     )
     return chat_response.choices[0].message.content
 
-# TODO: delete, not used
-async def build_index_from_directory(documents_dir, chunk_size=10240):
-    chunks = await load_document_chunks(documents_dir, chunk_size)
-    print(f"Total chunks extracted: {len(chunks)}")
-    if len(chunks) == 0:
-        return None, []
-    embeddings_list = []
-    for i, chunk in enumerate(chunks):
-        print(f"Embedding chunk {i+1}/{len(chunks)}...")
-        emb = await get_text_embedding_async(chunk["text"])
-        embeddings_list.append(np.array(emb, dtype=np.float32))
-    text_embeddings = np.stack(embeddings_list, axis=0)
-    faiss.normalize_L2(text_embeddings)
-    d = text_embeddings.shape[1]
-    index = faiss.IndexIDMap(faiss.IndexFlatIP(d))
-    ids = np.arange(len(chunks)).astype(np.int64)
-    index.add_with_ids(text_embeddings, ids)
-    return index, chunks
 
 async def update_index(documents_dir, chunk_size, save_dir, append=False):
     import memory

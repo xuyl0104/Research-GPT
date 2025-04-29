@@ -10,7 +10,7 @@ export default function ChatUI() {
   const [files, setFiles] = useState([]);
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
-  const [sidebarWidth, setSidebarWidth] = useState(256);
+  const [sidebarWidth, setSidebarWidth] = useState(433);
   const sidebarRef = useRef();
   const resizerRef = useRef();
   const isDragging = useRef(false);
@@ -27,6 +27,26 @@ export default function ChatUI() {
   const [error, setError] = useState(null);
   const bottomRef = useRef(null);
 
+  // progress bar
+  const [activeFile, setActiveFile] = useState(null);
+  const [uploadProgress, setUploadProgress] = useState(0); // 0 to 100%
+  const [totalChunks, setTotalChunks] = useState(0);
+  const [embeddedChunks, setEmbeddedChunks] = useState(0);
+
+  // load button and embedding list
+  const loadRef = useRef(null);
+  const [showDropdown, setShowDropdown] = useState(false);
+
+
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (loadRef.current && !loadRef.current.contains(e.target)) {
+        setShowDropdown(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
 
   useEffect(() => {
     const handleMouseMove = (e) => {
@@ -169,23 +189,56 @@ export default function ChatUI() {
     });
 
     setEmbeddingStatus("Uploading and processing...");
+    setUploadProgress(0);
+    setEmbeddedChunks(0);
+    setTotalChunks(0);
+
     try {
       const res = await fetch(`http://localhost:5000/embed-files?append=true&name=${encodeURIComponent(name)}`, {
         method: "POST",
         body: formData
       });
-      const result = await res.json();
-      if (res.status !== 200) throw new Error(result.error || "Unknown error");
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder("utf-8");
+      let partial = "";
+
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+
+        partial += decoder.decode(value, { stream: true });
+        const lines = partial.split("\n");
+        partial = lines.pop(); // Last line may be incomplete
+
+        for (const line of lines) {
+          if (line.startsWith("PROGRESS:")) {
+            const match = line.match(/(\d+)\/(\d+)/);
+            if (match) {
+              const current = parseInt(match[1], 10);
+              const total = parseInt(match[2], 10);
+              setEmbeddedChunks(current);
+              setTotalChunks(total);
+              setUploadProgress((current / total) * 100);
+            }
+          }
+        }
+      }
+
+      const result = JSON.parse(partial || "{}");
       setEmbeddingStatus(result.message || "Embedding complete");
       setSelectedEmbedding(name);
     } catch (err) {
       console.error("Error during embedding:", err);
       setEmbeddingStatus("Error during embedding");
     }
+
     setTimeout(() => {
+      setUploadProgress(0);
       setEmbeddingStatus(null);
     }, 4000);
   };
+
 
 
   const fetchEmbeddingList = async () => {
@@ -318,44 +371,76 @@ export default function ChatUI() {
             </div>
 
             {/* Group 2: Load + Unload + Delete */}
-            <div className="flex gap-x-2">
-              <button
-                onClick={handleLoadSavedEmbedding}
-                className="flex-1 bg-purple-400 hover:bg-purple-500 text-white py-2 rounded flex items-center justify-center gap-2"
-              >
-                🔄 Load
-              </button>
+            {/* Group 2: Load + Unload + Delete */}
+            <div className="flex gap-x-2 w-full">
+              {/* Load with Dropdown */}
+              <div ref={loadRef} className="relative flex-1">
+                <button
+                  onClick={async () => {
+                    if (!showDropdown) {
+                      await fetchEmbeddingList();
+                    }
+                    setShowDropdown(!showDropdown);
+                  }}
+                  className="w-full bg-purple-400 hover:bg-purple-500 text-white py-2 rounded flex items-center justify-center gap-2 h-full"
+                >
+                  🔄 Load
+                  <span className={`ml-1 transform transition-transform ${showDropdown ? "rotate-180" : ""}`}>
+                    ▾
+                  </span>
+                </button>
 
+                {showDropdown && (
+                  <ul className="absolute z-10 mt-1 w-full bg-white border rounded shadow text-sm text-left">
+                    {embeddingList.length > 0 ? (
+                      embeddingList.map((name) => (
+                        <li
+                          key={name}
+                          onClick={() => {
+                            handleSelectEmbedding(name);
+                            setShowDropdown(false);
+                          }}
+                          className="px-3 py-2 hover:bg-gray-100 cursor-pointer"
+                        >
+                          {name}
+                        </li>
+                      ))
+                    ) : (
+                      <li className="px-3 py-2 text-gray-400">No embeddings</li>
+                    )}
+                  </ul>
+                )}
+              </div>
+
+              {/* Unload button */}
               <button
                 onClick={handleUnloadEmbedding}
-                className="flex-1 bg-yellow-400 hover:bg-yellow-500 text-white py-2 rounded flex items-center justify-center gap-2"
+                className="flex-1 bg-yellow-400 hover:bg-yellow-500 text-white py-2 rounded flex items-center justify-center gap-2 h-full"
               >
                 🚪 Unload
               </button>
 
+              {/* Delete button */}
               <button
                 onClick={handleDeleteEmbedding}
-                className="flex-1 bg-gray-300 hover:bg-gray-400 text-gray-700 py-2 rounded text-sm flex items-center justify-center gap-2"
+                className="flex-1 bg-gray-300 hover:bg-gray-400 text-gray-700 py-2 rounded flex items-center justify-center gap-2 h-full text"
               >
                 🗑️ Delete
               </button>
             </div>
 
-            {/* Optional: Load Dropdown */}
-            {showEmbeddingDropdown && (
-              <div className="mt-2">
-                <select
-                  className="w-full border rounded p-2"
-                  onChange={(e) => handleSelectEmbedding(e.target.value)}
-                  defaultValue=""
-                >
-                  <option value="" disabled>Select embedding...</option>
-                  {embeddingList.map((name) => (
-                    <option key={name} value={name}>{name}</option>
-                  ))}
-                </select>
+
+
+            {uploadProgress > 0 && uploadProgress < 100 && (
+              <div className="w-full bg-gray-200 rounded-full h-2.5 mb-4">
+                <div
+                  className="bg-blue-500 h-2.5 rounded-full transition-all duration-300"
+                  style={{ width: `${uploadProgress}%` }}
+                ></div>
+                <p className="text-xs text-center mt-1 text-gray-500">{embeddedChunks} / {totalChunks} chunks embedded</p>
               </div>
             )}
+
 
             {/* Embedding Status */}
             {embeddingStatus && (
@@ -364,23 +449,45 @@ export default function ChatUI() {
 
           </div>
 
-          {/* sidebar-Scrollable File List */}
+          {/* Sidebar Scrollable File List */}
           <div className="flex-1 overflow-y-auto">
-            <ul className="space-y-2 text-sm text-gray-700">
+            <ul className="space-y-3 text-sm text-gray-700">
               {files.map((file, idx) => (
-                <li key={idx} className="truncate">
-                  <button
-                    onClick={() => handlePreviewChunks(file)}
-                    className="flex items-center gap-2 hover:underline truncate w-full text-left"
-                    title={file.name}
-                  >
-                    <span className="shrink-0">{getFileIcon(file.name)}</span>
-                    <span className="truncate block w-full">{file.name}</span>
-                  </button>
+                <li
+                  key={idx}
+                  onClick={() => {
+                    setActiveFile(file.name);
+                    handlePreviewChunks(file);
+                  }}
+                  className={`flex items-center justify-between p-3 rounded-lg cursor-pointer transition-colors ${activeFile === file.name ? 'bg-blue-50' : 'hover:bg-gray-100'
+                    }`}
+                >
+                  {/* Left: Icon + File Info */}
+                  <div className="flex items-center gap-3 truncate">
+                    {/* File icon */}
+                    <div className="text-3xl">
+                      {getFileIcon(file.name)}
+                    </div>
+
+                    {/* File text info */}
+                    <div className="flex flex-col truncate">
+                      <span className="font-semibold truncate">{file.name}</span>
+                      <span className="text-xs text-gray-500 truncate">
+                        {file.blob ? `${(file.blob.size / 1024).toFixed(1)} KB` : 'Embedded'}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* (Optional) Right actions */}
+                  {/* <button className="text-gray-400 hover:text-gray-600">
+                    ⬇️
+                  </button> */}
                 </li>
               ))}
             </ul>
           </div>
+
+
 
           {/* sidebar-resizer */}
           <div
