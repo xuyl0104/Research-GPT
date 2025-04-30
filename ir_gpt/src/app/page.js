@@ -557,12 +557,14 @@ export default function ChatUI() {
                     }`}
                 >
 
-                  <input
-                    type="checkbox"
-                    checked={!!file.selected}
-                    onChange={() => toggleSelectFile(idx)}
-                    className="cursor-pointer"
-                  />
+                  {hasLocalUploads && (
+                    <input
+                      type="checkbox"
+                      checked={!!file.selected}
+                      onChange={() => toggleSelectFile(idx)}
+                      className="cursor-pointer"
+                    />
+                  )}
 
                   {/* Left: Icon + File Info */}
                   <div className="flex items-center gap-3 truncate">
