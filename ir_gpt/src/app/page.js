@@ -40,6 +40,9 @@ export default function ChatUI() {
   const [previewedFileContent, setPreviewedFileContent] = useState(null);
   const [previewedFileName, setPreviewedFileName] = useState(null);
 
+  // make select/deselect/remove (in)visible
+  const [hasLocalUploads, setHasLocalUploads] = useState(false);
+
 
   useEffect(() => {
     const handleClickOutside = (e) => {
@@ -175,9 +178,38 @@ export default function ChatUI() {
     const uploadedFiles = Array.from(e.target.files).map((f) => ({
       name: f.name,
       path: URL.createObjectURL(f),
-      blob: f
+      blob: f,
+      selected: false,
     }));
     setFiles((prev) => [...prev, ...uploadedFiles]);
+    setHasLocalUploads(true); // ✅
+    e.target.value = null;
+  };
+
+
+  // --- Toggle Select One ---
+  const toggleSelectFile = (index) => {
+    setFiles((prev) =>
+      prev.map((file, i) =>
+        i === index ? { ...file, selected: !file.selected } : file
+      )
+    );
+  };
+
+
+  // --- Select All ---
+  const selectAllFiles = () => {
+    setFiles((prev) => prev.map((file) => ({ ...file, selected: true })));
+  };
+
+  // --- Deselect All ---
+  const deselectAllFiles = () => {
+    setFiles((prev) => prev.map((file) => ({ ...file, selected: false })));
+  };
+
+  // --- Remove Selected Files ---
+  const removeSelectedFiles = () => {
+    setFiles((prev) => prev.filter((file) => !file.selected));
   };
 
   const handleFileClick = (file) => {
@@ -187,11 +219,16 @@ export default function ChatUI() {
 
 
   const handleEmbedding = async () => {
+    const selectedFiles = files.filter((file) => file.selected);
+    if (selectedFiles.length === 0) {
+      alert("No files selected for embedding.");
+      return;
+    }
     const name = prompt("Enter a name for this new embedding session:");
     if (!name) return;
 
     const formData = new FormData();
-    files.forEach((file) => {
+    selectedFiles.forEach((file) => {
       if (file.blob) {
         formData.append("files", file.blob, file.name);
       }
@@ -271,6 +308,7 @@ export default function ChatUI() {
       setFiles(savedFiles);
       setSelectedEmbedding(name);
       setShowEmbeddingDropdown(false);
+      setHasLocalUploads(false);
     } catch (err) {
       console.error("Failed to load embedding:", err);
       setError("Could not load selected embedding.");
@@ -283,6 +321,7 @@ export default function ChatUI() {
   };
 
   const handleUnloadEmbedding = () => {
+    setHasLocalUploads(false);
     setFiles([]);
     setMessages([]);
     setSelectedFileChunks([]);
@@ -298,10 +337,18 @@ export default function ChatUI() {
       alert("No embedding loaded.");
       return;
     }
+
+    const confirmed = window.confirm(`Are you sure you want to delete the embedding "${selectedEmbedding}"? This action cannot be undone.`);
+    if (!confirmed) return;
+
     try {
-      const res = await fetch(`http://localhost:5000/delete-embedding?name=${encodeURIComponent(selectedEmbedding)}`, { method: "POST" });
+      const res = await fetch(`http://localhost:5000/delete-embedding?name=${encodeURIComponent(selectedEmbedding)}`, {
+        method: "POST"
+      });
       const data = await res.json();
       if (res.status !== 200) throw new Error(data.error || "Unknown error");
+
+      // Reset frontend state
       setFiles([]);
       setMessages([]);
       setSelectedFileChunks([]);
@@ -309,12 +356,14 @@ export default function ChatUI() {
       setLoadedFiles(new Set());
       setSelectedEmbedding("");
       setEmbeddingStatus("Embedding deleted");
+      setHasLocalUploads(false);
       setTimeout(() => setEmbeddingStatus(null), 4000);
     } catch (err) {
       console.error("Delete embedding failed:", err);
       setError("Failed to delete embedding.");
     }
   };
+
 
 
   const getFileIcon = (filename) => {
@@ -379,7 +428,6 @@ export default function ChatUI() {
               </button>
             </div>
 
-            {/* Group 2: Load + Unload + Delete */}
             {/* Group 2: Load + Unload + Delete */}
             <div className="flex gap-x-2 w-full">
               {/* Load with Dropdown */}
@@ -460,32 +508,57 @@ export default function ChatUI() {
 
           {/* Sidebar Scrollable File List */}
           <div className="flex-1 overflow-y-auto">
+
+            {/* Top Controls */}
+            <div className="sticky top-0 bg-gray-100 z-10 pb-2">
+              {hasLocalUploads && (
+                <div className="flex gap-2">
+                  <button onClick={selectAllFiles} className="flex-1 bg-blue-100 hover:bg-blue-200 rounded p-2 text-xs">Select All</button>
+                  <button onClick={deselectAllFiles} className="flex-1 bg-blue-100 hover:bg-blue-200 rounded p-2 text-xs">Deselect All</button>
+                  <button
+                    onClick={removeSelectedFiles}
+                    className="flex-1 bg-red-400 hover:bg-red-500 text-white rounded p-2"
+                  >
+                    Remove
+                  </button>
+                </div>
+              )}
+            </div>
+
+
+
             <ul className="space-y-3 text-sm text-gray-700">
               {files.map((file, idx) => (
                 <li
                   key={idx}
-                  onClick={() => {
-                    setActiveFile(file.name);
-                    handleFileClick(file);
-                  }}
-                  className={`flex items-center justify-between p-3 rounded-lg cursor-pointer transition-colors ${activeFile === file.name ? 'bg-blue-50' : 'hover:bg-gray-100'
+                  className={`flex items-center gap-x-4 justify-start p-3 rounded-lg cursor-pointer transition-colors ${activeFile === file.name ? 'bg-blue-50' : 'hover:bg-gray-100'
                     }`}
                 >
+
+                  <input
+                    type="checkbox"
+                    checked={!!file.selected}
+                    onChange={() => toggleSelectFile(idx)}
+                    className="cursor-pointer"
+                  />
+
                   {/* Left: Icon + File Info */}
                   <div className="flex items-center gap-3 truncate">
-                    {/* File icon */}
-                    <div className="text-3xl">
-                      {getFileIcon(file.name)}
-                    </div>
-
-                    {/* File text info */}
-                    <div className="flex flex-col truncate">
+                    <div className="text-3xl">{getFileIcon(file.name)}</div>
+                    <div
+                      className="flex flex-col truncate cursor-pointer"
+                      onClick={() => {
+                        setActiveFile(file.name);
+                        handleFileClick(file);
+                      }}
+                    >
                       <span className="font-semibold truncate">{file.name}</span>
                       <span className="text-xs text-gray-500 truncate">
                         {file.blob ? `${(file.blob.size / 1024).toFixed(1)} KB` : 'Embedded'}
                       </span>
                     </div>
                   </div>
+
 
                   {/* (Optional) Right actions */}
                   {/* <button className="text-gray-400 hover:text-gray-600">
