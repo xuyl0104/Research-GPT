@@ -2,6 +2,7 @@ from flask import Flask, request, jsonify, Response, send_from_directory
 from flask_cors import CORS
 import faiss
 import os
+import json
 import numpy as np
 import pickle
 import asyncio
@@ -151,6 +152,38 @@ def ask_question():
     # Call async function properly
     result = asyncio.run(answer_question(user_question))
     return jsonify({"answer": result[0], "evidence": result[1]})
+
+
+@app.route("/save-chat", methods=["POST"])
+def save_chat():
+    name = request.args.get("name")
+    if not name:
+        return jsonify({"error": "Missing embedding name"}), 400
+    messages = request.json.get("messages", [])
+    emb_dir = os.path.join("embeddings", name)
+    os.makedirs(emb_dir, exist_ok=True)
+    try:
+        with open(os.path.join(emb_dir, "chat.json"), "w", encoding="utf-8") as f:
+            json.dump(messages, f, indent=2)
+        return jsonify({"status": "saved"})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/load-chat")
+def load_chat():
+    name = request.args.get("name")
+    if not name:
+        return jsonify({"error": "Missing embedding name"}), 400
+    emb_dir = os.path.join("embeddings", name)
+    chat_path = os.path.join(emb_dir, "chat.json")
+    if not os.path.exists(chat_path):
+        return jsonify({"messages": []})
+    try:
+        with open(chat_path, "r", encoding="utf-8") as f:
+            messages = json.load(f)
+        return jsonify({"messages": messages})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 
 @app.route("/preview-file")

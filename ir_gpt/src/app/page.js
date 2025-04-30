@@ -153,10 +153,13 @@ export default function ChatUI() {
   const handleSend = async (e) => {
     e.preventDefault();
     if (!input.trim()) return;
-    setMessages((prev) => [...prev, { from: "user", content: input }]);
+
     const currentInput = input;
+    const newMessages = [...messages, { from: "user", content: currentInput }];
+    setMessages(newMessages);
     setInput("");
     setError(null);
+
     try {
       const res = await fetch("http://localhost:5000/ask", {
         method: "POST",
@@ -165,14 +168,25 @@ export default function ChatUI() {
       });
       const data = await res.json();
       if (res.status !== 200) throw new Error(data.error || "Unknown error");
-      if (data.answer) {
-        setMessages((prev) => [...prev, { from: "bot", content: data.answer }]);
+
+      const botReply = { from: "bot", content: data.answer, evidence: data.evidence || [] };
+      const updatedMessages = [...newMessages, botReply];
+      setMessages(updatedMessages);
+
+      // Save chat history after successful exchange
+      if (selectedEmbedding) {
+        await fetch(`http://localhost:5000/save-chat?name=${encodeURIComponent(selectedEmbedding)}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ messages: updatedMessages })
+        });
       }
     } catch (err) {
       console.error("Bot error:", err);
       setError(err.message || "Something went wrong");
     }
   };
+
 
   const handleFileUpload = (e) => {
     const uploadedFiles = Array.from(e.target.files).map((f) => ({
@@ -309,6 +323,14 @@ export default function ChatUI() {
       setSelectedEmbedding(name);
       setShowEmbeddingDropdown(false);
       setHasLocalUploads(false);
+
+      // load the message history
+      const chatRes = await fetch(`http://localhost:5000/load-chat?name=${encodeURIComponent(name)}`);
+      const chatData = await chatRes.json();
+      if (chatRes.status === 200 && Array.isArray(chatData.messages)) {
+        setMessages(chatData.messages);
+      }
+
     } catch (err) {
       console.error("Failed to load embedding:", err);
       setError("Could not load selected embedding.");
@@ -448,7 +470,7 @@ export default function ChatUI() {
                 </button>
 
                 {showDropdown && (
-                  <ul className="absolute z-10 mt-1 w-full bg-white border rounded shadow text-sm text-left">
+                  <ul className="absolute z-20 mt-1 w-full bg-white border rounded shadow text-sm text-left">
                     {embeddingList.length > 0 ? (
                       embeddingList.map((name) => (
                         <li
