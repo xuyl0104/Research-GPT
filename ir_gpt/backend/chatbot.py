@@ -107,6 +107,21 @@ async def load_document_chunks(directory, chunk_size=10240):
                     })
     return chunks
 
+
+def load_chunks_from_file(file_path, chunk_size=10240):
+    chunks = []
+    text = extract_text_from_file(file_path)
+    if text:
+        split_chunks = split_text(text, chunk_size)
+        for idx, chunk in enumerate(split_chunks):
+            chunks.append({
+                "text": chunk,
+                "filename": os.path.basename(file_path),
+                "chunk_index": idx
+            })
+    return chunks
+
+
 async def get_text_embedding_async(input_text):
     # url = "http://host.docker.internal:8000/v1/embeddings"
     url = "http://128.226.119.122:8000/v1/embeddings"

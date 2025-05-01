@@ -1,0 +1,16 @@
+# start fastAPI server
+uvicorn main:app --reload
+
+# for test the API / Auth with Swagger UI
+http://localhost:8000/docs
+
+
+# get .env file
+pip install python-dotenv
+SECRET_KEY=super-secret-uuid-or-64-char-string
+
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
+SECRET_KEY = os.getenv("SECRET_KEY")
