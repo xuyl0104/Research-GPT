@@ -1,0 +1,22 @@
+🔧 Step 1: Get into the running container
+docker exec -it pgvector-db psql -U myuser -d mydb
+
+-- See all tables
+\dt
+
+-- Show table structure
+\d users
+
+-- Query rows
+SELECT * FROM users;
+
+-- Insert a row (UUIDs can be auto-generated)
+INSERT INTO users (id, username, password_hash) VALUES (gen_random_uuid(), 'alice', 'hashed_pw');
+
+-- Delete all users
+DELETE FROM users;
+
+
+If gen_random_uuid() is not found, enable the pgcrypto extension once:
+
+CREATE EXTENSION IF NOT EXISTS "pgcrypto";

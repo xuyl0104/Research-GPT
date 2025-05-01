@@ -7,3 +7,5 @@ documents/
 ir_gpt-Copy
 .DS_Store
 ir_gpt/backend/config.json
+.env
+embeddings/
