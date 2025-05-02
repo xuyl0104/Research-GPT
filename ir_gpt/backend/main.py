@@ -24,6 +24,8 @@ from pgsql.models import User
 from chatbot import extract_text_from_file, split_text, load_document_chunks, load_chunks_from_file, get_text_embedding_async, answer_question
 import memory
 
+from aws_s3_utils import upload_pickle_to_s3, download_pickle_from_s3, upload_faiss_to_s3, download_faiss_from_s3, delete_from_s3, s3_key_for
+
 UPLOAD_DIR = "documents"
 EMBEDDING_DIR = "embeddings"
 
@@ -113,6 +115,9 @@ async def embed_files(
             yield "PROGRESS: 0/0\n"
             yield json.dumps({"status": "error", "message": "No valid files found"})
             return
+        
+        faiss_index_key = s3_key_for(user_id, name, "faiss.index")
+        chunks_pkl_key = s3_key_for(user_id, name, "chunks.pkl")
 
         faiss_path = os.path.join(emb_dir, "faiss.index")
         chunks_path = os.path.join(emb_dir, "chunks.pkl")
@@ -150,10 +155,16 @@ async def embed_files(
             pickle.dump(all_chunks, f)
 
         # Persist embedding file paths
-        embedding.faiss_path = faiss_path
-        embedding.chunks_path = chunks_path
+        # Persist S3 keys to DB
+        embedding.faiss_path = faiss_index_key  # (S3 key in db)
+        embedding.chunks_path = chunks_pkl_key  # (S3 key in db)
+
         db.add(embedding)
         db.commit()
+
+        # Upload to S3
+        upload_faiss_to_s3(index, faiss_index_key)
+        upload_pickle_to_s3(all_chunks, chunks_pkl_key)
 
         memory.global_index = index
         memory.global_chunks = all_chunks
@@ -161,6 +172,7 @@ async def embed_files(
         yield json.dumps({"status": "success", "message": "Embedding complete"})
 
     return StreamingResponse(streamer(), media_type="text/plain")
+
 
 @app.post("/ask")
 async def ask_question(
@@ -225,19 +237,38 @@ async def list_embeddings(
     return {"embeddings": [e.name for e in embeddings]}
 
 @app.get("/load-embedding")
-async def load_embedding(name: str, current_user: User = Depends(get_current_user)):
-    emb_dir = os.path.join(EMBEDDING_DIR, str(current_user.id), name)
-    index_path = os.path.join(emb_dir, "faiss.index")
-    chunks_path = os.path.join(emb_dir, "chunks.pkl")
-
-    if not os.path.exists(index_path) or not os.path.exists(chunks_path):
+async def load_embedding(
+    name: str = Query(...),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    embedding = db.query(Embedding).filter_by(user_id=current_user.id, name=name).first()
+    if not embedding:
         raise HTTPException(status_code=404, detail="Embedding not found")
 
-    memory.global_index = faiss.read_index(index_path)
-    with open(chunks_path, "rb") as f:
-        memory.global_chunks = pickle.load(f)
-    filenames = sorted(list(set(chunk["filename"] for chunk in memory.global_chunks)))
-    return {"status": "loaded", "files": filenames}
+    local_dir = os.path.join(EMBEDDING_DIR, str(current_user.id), name)
+    chunks_path = os.path.join(local_dir, "chunks.pkl")
+    index_path = os.path.join(local_dir, "faiss.index")
+
+    # Prefer local load, fallback to S3
+    if os.path.exists(chunks_path) and os.path.exists(index_path):
+        with open(chunks_path, "rb") as f:
+            chunks = pickle.load(f)
+        index = faiss.read_index(index_path)
+    else:
+        chunks = download_pickle_from_s3(embedding.chunks_path)
+        index = download_faiss_from_s3(embedding.faiss_path)
+        os.makedirs(local_dir, exist_ok=True)
+        with open(chunks_path, "wb") as f:
+            pickle.dump(chunks, f)
+        faiss.write_index(index, index_path)
+
+    memory.global_chunks = chunks
+    memory.global_index = index
+
+    file_names = list({chunk["filename"] for chunk in chunks})
+    return {"status": "success", "files": file_names}
+
 
 @app.post("/delete-embedding")
 async def delete_embedding(
@@ -257,6 +288,12 @@ async def delete_embedding(
     emb_dir = os.path.join(EMBEDDING_DIR, str(current_user.id), name)
     if os.path.exists(emb_dir):
         shutil.rmtree(emb_dir)
+
+    # Remove from S3
+    if embedding.chunks_path:
+        delete_from_s3(embedding.chunks_path)
+    if embedding.faiss_path:
+        delete_from_s3(embedding.faiss_path)
 
     return {"status": "success", "message": f"Embedding '{name}' deleted"}
 
