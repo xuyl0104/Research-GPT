@@ -5,7 +5,7 @@ import pickle
 import numpy as np
 import faiss
 from datetime import datetime, timezone
-from fastapi import FastAPI, Request, UploadFile, File, Form, Response, HTTPException, Depends, APIRouter
+from fastapi import FastAPI, Request, UploadFile, File, Form, Response, HTTPException, Depends, APIRouter, Query
 from fastapi.responses import StreamingResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -212,12 +212,17 @@ async def ask_question(
 
 
 @app.get("/list-embeddings")
-async def list_embeddings(current_user: User = Depends(get_current_user)):
-    emb_root = os.path.join(EMBEDDING_DIR, str(current_user.id))
-    if not os.path.exists(emb_root):
-        return {"embeddings": []}
-    names = sorted([d for d in os.listdir(emb_root) if os.path.isdir(os.path.join(emb_root, d))])
-    return {"embeddings": names}
+async def list_embeddings(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    embeddings = (
+        db.query(Embedding)
+        .filter_by(user_id=current_user.id)
+        .order_by(Embedding.created_at.desc())
+        .all()
+    )
+    return {"embeddings": [e.name for e in embeddings]}
 
 @app.get("/load-embedding")
 async def load_embedding(name: str, current_user: User = Depends(get_current_user)):
@@ -235,37 +240,54 @@ async def load_embedding(name: str, current_user: User = Depends(get_current_use
     return {"status": "loaded", "files": filenames}
 
 @app.post("/delete-embedding")
-async def delete_embedding(name: str, current_user: User = Depends(get_current_user)):
+async def delete_embedding(
+    name: str = Query(...),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    embedding = db.query(Embedding).filter_by(user_id=current_user.id, name=name).first()
+    if not embedding:
+        raise HTTPException(status_code=404, detail="Embedding not found")
+
+    # Remove from database (cascade deletes messages)
+    db.delete(embedding)
+    db.commit()
+
+    # Remove local embedding folder
     emb_dir = os.path.join(EMBEDDING_DIR, str(current_user.id), name)
     if os.path.exists(emb_dir):
         shutil.rmtree(emb_dir)
-        return {"status": "deleted", "message": f"Embedding '{name}' deleted"}
-    else:
-        raise HTTPException(status_code=404, detail="Embedding not found")
 
-@app.post("/save-chat")
-async def save_chat(request: Request, name: str, current_user: User = Depends(get_current_user)):
-    messages = (await request.json()).get("messages", [])
-    emb_dir = os.path.join(EMBEDDING_DIR, str(current_user.id), name)
-    os.makedirs(emb_dir, exist_ok=True)
-    try:
-        with open(os.path.join(emb_dir, "chat.json"), "w", encoding="utf-8") as f:
-            json.dump(messages, f, indent=2)
-        return {"status": "saved"}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    return {"status": "success", "message": f"Embedding '{name}' deleted"}
+
 
 @app.get("/load-chat")
-async def load_chat(name: str, current_user: User = Depends(get_current_user)):
-    chat_path = os.path.join(EMBEDDING_DIR, str(current_user.id), name, "chat.json")
-    if not os.path.exists(chat_path):
-        return {"messages": []}
-    try:
-        with open(chat_path, "r", encoding="utf-8") as f:
-            messages = json.load(f)
-        return {"messages": messages}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+async def load_chat(
+    name: str = Query(...),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    embedding = db.query(Embedding).filter_by(user_id=current_user.id, name=name).first()
+    if not embedding:
+        raise HTTPException(status_code=404, detail="Embedding not found")
+
+    messages = (
+        db.query(Message)
+        .filter_by(embedding_id=embedding.id)
+        .order_by(Message.created_at)
+        .all()
+    )
+
+    return {
+        "messages": [
+            {
+                "from": m.role,
+                "content": m.content,
+                "evidence": m.evidence
+            }
+            for m in messages
+        ]
+    }
 
 @app.get("/preview-file")
 async def preview_file(filename: str, embeddingName: str, current_user: User = Depends(get_current_user)):

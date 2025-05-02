@@ -148,15 +148,6 @@ export default function ChatUI({ onLogout }) {
       const botReply = { from: "bot", content: data.answer, evidence: data.evidence || [] };
       const updatedMessages = [...newMessages, botReply];
       setMessages(updatedMessages);
-
-      // Save chat history after successful exchange
-      if (selectedEmbedding) {
-        await authFetch(`http://localhost:${API_PORT}/save-chat?name=${encodeURIComponent(selectedEmbedding)}`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ messages: updatedMessages })
-        });
-      }
     } catch (err) {
       console.error("Bot error:", err);
       setError(err.message || "Something went wrong");
