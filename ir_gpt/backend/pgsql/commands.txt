@@ -20,3 +20,26 @@ DELETE FROM users;
 If gen_random_uuid() is not found, enable the pgcrypto extension once:
 
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
+
+
+User (id, username, password_hash, created_at)
+ └── Embedding (id, user_id, name, created_at, faiss.index, chunks.pkl, ...)
+       ├── File (id, embedding_id, filename, path, ...)
+       └── Message (id, embedding_id, role, content, created_at)
+
+
+To update the database schema, we use alembic:
+- conda install alembic
+run alembic init alembic at the root of the pgsql folder
+
+- in alembic.ini, update the database URL
+sqlalchemy.url = postgresql+psycopg2://myuser:mypassword@localhost:5432/mydb
+
+- In alembic/env.py, import your Base metadata:
+from models import Base
+target_metadata = Base.metadata
+
+- alembic revision --autogenerate -m "Initial tables and embedding updates"
+get the revision ID and down_revision
+
+- run alembic upgrade head

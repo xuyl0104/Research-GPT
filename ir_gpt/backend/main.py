@@ -4,6 +4,7 @@ import json
 import pickle
 import numpy as np
 import faiss
+from datetime import datetime, timezone
 from fastapi import FastAPI, Request, UploadFile, File, Form, Response, HTTPException, Depends, APIRouter
 from fastapi.responses import StreamingResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -17,6 +18,7 @@ import uuid
 from sqlalchemy.orm import Session
 from pgsql.database import get_db
 from auth_utils import get_current_user
+from pgsql.models import Base, User, Embedding, Message
 from pgsql.models import User
 
 from chatbot import extract_text_from_file, split_text, load_document_chunks, load_chunks_from_file, get_text_embedding_async, answer_question
@@ -57,25 +59,35 @@ def register_user(username: str = Form(...), password: str = Form(...), db: Sess
 
 
 @app.post("/embed-files")
-async def embed_files(name: str = Form(...), append: bool = Form(True), files: List[UploadFile] = File(...), current_user: User = Depends(get_current_user)):
-    print("entered embed-files")
-
+async def embed_files(
+    name: str = Form(...),
+    append: bool = Form(True),
+    files: List[UploadFile] = File(...),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
     user_id = current_user.id
+
+    # Get or create embedding entry in the DB
+    embedding = db.query(Embedding).filter_by(user_id=user_id, name=name).first()
+    if not embedding:
+        embedding = Embedding(id=uuid.uuid4(), user_id=user_id, name=name)
+        db.add(embedding)
+        db.commit()
+        db.refresh(embedding)
+
     emb_dir = os.path.join(EMBEDDING_DIR, str(user_id), name)
     docs_dir = os.path.join(emb_dir, "documents")
     os.makedirs(docs_dir, exist_ok=True)
 
-    # Identify already embedded files
     existing_files = set()
     if append and os.path.exists(docs_dir):
         existing_files = set(os.listdir(docs_dir))
 
-    # Save only new files
     new_files = []
     for file in files:
         if append and file.filename in existing_files:
-            continue  # Skip already embedded files
-
+            continue
         save_path = os.path.join(docs_dir, file.filename)
         with open(save_path, "wb") as f:
             f.write(await file.read())
@@ -87,9 +99,15 @@ async def embed_files(name: str = Form(...), append: bool = Form(True), files: L
     async def streamer():
         all_chunks = []
         for path in new_files:
-            chunks = load_chunks_from_file(path, chunk_size=8000)
-            all_chunks.extend(chunks)
-            yield f"PROGRESS: {len(all_chunks)}/{...}\n"
+            chunks = extract_text_from_file(path)
+            split_chunks = split_text(chunks, chunk_size=8000)
+            for idx, chunk in enumerate(split_chunks):
+                all_chunks.append({
+                    "text": chunk,
+                    "filename": os.path.basename(path),
+                    "chunk_index": idx
+                })
+            yield f"PROGRESS: {len(all_chunks)}/{len(all_chunks)}\n"
 
         if not all_chunks:
             yield "PROGRESS: 0/0\n"
@@ -131,6 +149,12 @@ async def embed_files(name: str = Form(...), append: bool = Form(True), files: L
         with open(chunks_path, "wb") as f:
             pickle.dump(all_chunks, f)
 
+        # Persist embedding file paths
+        embedding.faiss_path = faiss_path
+        embedding.chunks_path = chunks_path
+        db.add(embedding)
+        db.commit()
+
         memory.global_index = index
         memory.global_chunks = all_chunks
 
@@ -139,17 +163,53 @@ async def embed_files(name: str = Form(...), append: bool = Form(True), files: L
     return StreamingResponse(streamer(), media_type="text/plain")
 
 @app.post("/ask")
-async def ask_question(request: Request, current_user: User = Depends(get_current_user)):
-    data = await request.json()
-    user_question = data.get("question", "")
+async def ask_question(
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    body = await request.json()
+    question = body.get("question")
+    embedding_name = body.get("embedding")
+    if not question or not embedding_name:
+        raise HTTPException(status_code=400, detail="Missing question or embedding name")
 
-    if not user_question:
-        raise HTTPException(status_code=400, detail="No question provided.")
-    if memory.global_index is None:
-        raise HTTPException(status_code=400, detail="No documents embedded. Please upload and embed files first.")
+    # Get embedding session
+    embedding = db.query(Embedding).filter_by(user_id=current_user.id, name=embedding_name).first()
+    if not embedding:
+        raise HTTPException(status_code=404, detail="Embedding not found")
 
-    answer, evidence = await answer_question(user_question)
-    return {"answer": answer, "evidence": evidence}
+    # Save user's question
+    user_msg = Message(
+        id=uuid.uuid4(),
+        user_id=current_user.id,
+        embedding_id=embedding.id,
+        role="user",
+        content=question,
+        created_at=datetime.now(timezone.utc)
+    )
+    db.add(user_msg)
+    db.commit()
+
+    # Run LLM (Mistral or other)
+    answer, evidence = await answer_question(question)
+    bot_msg = Message(
+        id=uuid.uuid4(),
+        user_id=current_user.id,
+        embedding_id=embedding.id,
+        role="bot",
+        content=answer,
+        evidence=evidence,
+        created_at=datetime.now(timezone.utc)
+    )
+    db.add(bot_msg)
+    db.commit()
+
+    return {
+        "answer": answer,
+        "evidence": evidence
+    }
+
 
 @app.get("/list-embeddings")
 async def list_embeddings(current_user: User = Depends(get_current_user)):

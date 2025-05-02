@@ -140,7 +140,7 @@ export default function ChatUI({ onLogout }) {
       const res = await authFetch(`http://localhost:${API_PORT}/ask`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ question: currentInput }),
+        body: JSON.stringify({ question: currentInput, "embedding": selectedEmbedding }),
       });
       const data = await res.json();
       if (res.status !== 200) throw new Error(data.error || "Unknown error");
