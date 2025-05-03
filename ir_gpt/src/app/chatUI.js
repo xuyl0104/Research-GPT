@@ -30,6 +30,9 @@ export default function ChatUI({ onLogout }) {
   const [error, setError] = useState(null);
   const bottomRef = useRef(null);
 
+  // display user name
+  const [username, setUsername] = useState("");
+
   // progress bar
   const [activeFile, setActiveFile] = useState(null);
   const [uploadProgress, setUploadProgress] = useState(0); // 0 to 100%
@@ -47,6 +50,27 @@ export default function ChatUI({ onLogout }) {
   // make select/deselect/remove (in)visible
   const [hasLocalUploads, setHasLocalUploads] = useState(false);
 
+  // fetch username
+  useEffect(() => {
+    async function fetchUser() {
+      try {
+        const res = await fetch(`http://localhost:${API_PORT}/test-auth`, {
+          headers: {
+            Authorization: `Bearer ${localStorage.getItem("token")}`
+          }
+        });
+        if (res.ok) {
+          const data = await res.json();
+          setUsername(data.user_name || "User");
+        } else {
+          console.warn("Auth failed");
+        }
+      } catch (err) {
+        console.error("Error fetching user:", err);
+      }
+    }
+    fetchUser();
+  }, []);
 
   useEffect(() => {
     const handleClickOutside = (e) => {
@@ -620,16 +644,19 @@ export default function ChatUI({ onLogout }) {
           {/* Header */}
           <header className="p-4 border-b flex items-center justify-between">
             <h1 className="text-xl font-bold">
-              ChatBot {selectedEmbedding && <span className="text-sm text-gray-500 ml-2">({selectedEmbedding})</span>}
+              Research-GPT {selectedEmbedding && <span className="text-sm text-gray-500 ml-2">({selectedEmbedding})</span>}
             </h1>
 
-            <button
-              onClick={onLogout}
-              className="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded"
-            >
-              Logout
-            </button>
+            <div>
+              <span style={{ marginRight: '1rem' }}>👤 {username}</span>
+              <button
+                onClick={onLogout}
+                className="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded"
+              >
+                Logout
+              </button>
 
+            </div>
             <button className="md:hidden bg-gray-200 px-2 py-1 rounded">☰</button>
           </header>
 
