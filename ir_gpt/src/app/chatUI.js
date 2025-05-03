@@ -160,7 +160,8 @@ export default function ChatUI({ onLogout }) {
       name: f.name,
       path: URL.createObjectURL(f),
       blob: f,
-      selected: false,
+      selected: true,
+      existing: false
     }));
     setFiles((prev) => [...prev, ...uploadedFiles]);
     setHasLocalUploads(true);
@@ -205,7 +206,7 @@ export default function ChatUI({ onLogout }) {
       alert("No files selected for embedding.");
       return;
     }
-    const name = prompt("Enter a name for this new embedding session:");
+    const name = prompt("Enter a name for this embedding: (default name for appending)", selectedEmbedding);
     if (!name) return;
 
     const formData = new FormData();
@@ -288,7 +289,7 @@ export default function ChatUI({ onLogout }) {
       const res = await authFetch(`http://localhost:${API_PORT}/load-embedding?name=${encodeURIComponent(name)}`);
       const data = await res.json();
       if (res.status !== 200) throw new Error(data.error || "Unknown error");
-      const savedFiles = data.files.map(name => ({ name, path: "", blob: null }));
+      const savedFiles = data.files.map(name => ({ name, path: "", blob: null, existing: true }));
       setFiles(savedFiles);
       setSelectedEmbedding(name);
       setShowEmbeddingDropdown(false);
@@ -567,7 +568,8 @@ export default function ChatUI({ onLogout }) {
                     }`}
                 >
 
-                  {hasLocalUploads && (
+                  {/* Show checkbox only for new uploads */}
+                  {!file.existing && (
                     <input
                       type="checkbox"
                       checked={!!file.selected}
