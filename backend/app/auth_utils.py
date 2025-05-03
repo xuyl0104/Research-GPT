@@ -3,8 +3,8 @@ from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from jose import JWTError, jwt
 from sqlalchemy.orm import Session
-from pgsql.models import User
-from pgsql.database import get_db
+from app.pgsql.models import User
+from app.pgsql.database import get_db
 from dotenv import load_dotenv
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 

@@ -7,7 +7,7 @@ import numpy as np
 import pickle
 import asyncio
 from chatbot import extract_text_from_file, split_text, load_document_chunks, get_text_embedding_async, answer_question
-import memory
+import backend.app.memory as memory
 
 UPLOAD_DIR = "documents"
 EMBEDDING_DIR = "embeddings"
@@ -102,7 +102,7 @@ def list_embeddings():
 
 @app.route("/load-embedding")
 def load_embedding():
-    import memory
+    import backend.app.memory as memory
     import faiss
     import pickle
 

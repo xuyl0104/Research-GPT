@@ -12,19 +12,19 @@ from fastapi.staticfiles import StaticFiles
 from passlib.context import CryptContext
 from typing import List
 
-from auth import router as auth_router
+from app.auth import router as auth_router
 
 import uuid
 from sqlalchemy.orm import Session
-from pgsql.database import get_db
-from auth_utils import get_current_user
-from pgsql.models import Base, User, Embedding, Message
-from pgsql.models import User
+from app.pgsql.database import get_db
+from app.auth_utils import get_current_user
+from app.pgsql.models import Base, User, Embedding, Message
+from app.pgsql.models import User
 
-from chatbot import extract_text_from_file, split_text, load_document_chunks, load_chunks_from_file, get_text_embedding_async, answer_question
-import memory
+from app.chatbot import extract_text_from_file, split_text, load_document_chunks, load_chunks_from_file, get_text_embedding_async, answer_question, run_mistral_async
+import app.memory as memory
 
-from aws_s3_utils import upload_pickle_to_s3, download_pickle_from_s3, upload_faiss_to_s3, download_faiss_from_s3, delete_from_s3, s3_key_for
+from app.aws_s3_utils import upload_pickle_to_s3, download_pickle_from_s3, upload_faiss_to_s3, download_faiss_from_s3, delete_from_s3, s3_key_for
 
 UPLOAD_DIR = "documents"
 EMBEDDING_DIR = "embeddings"
@@ -43,7 +43,7 @@ app.add_middleware(
 @app.get("/test-auth")
 def test_auth(current_user: User = Depends(get_current_user)):
     print("✔️ Auth route hit")
-    return {"user_id": str(current_user.id)}
+    return {"user_name": str(current_user.username)}
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 router = APIRouter()
@@ -183,6 +183,7 @@ async def ask_question(
     body = await request.json()
     question = body.get("question")
     embedding_name = body.get("embedding")
+    open_mode = body.get("open_mode", False)
     if not question or not embedding_name:
         raise HTTPException(status_code=400, detail="Missing question or embedding name")
 
@@ -203,8 +204,17 @@ async def ask_question(
     db.add(user_msg)
     db.commit()
 
-    # Run LLM (Mistral or other)
-    answer, evidence = await answer_question(question)
+        # Generate response based on mode
+    if open_mode:
+        prompt = f"Answer the following question as best you can using your general knowledge:\n\n{question}\n\nAnswer:"
+        answer = await run_mistral_async(prompt)
+        evidence = []
+    else:
+        answer, evidence = await answer_question(question)
+
+    if not answer:
+        return JSONResponse({"error": "No answer generated"}, status_code=400)
+
     bot_msg = Message(
         id=uuid.uuid4(),
         user_id=current_user.id,

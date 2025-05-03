@@ -33,6 +33,9 @@ export default function ChatUI({ onLogout }) {
   // display user name
   const [username, setUsername] = useState("");
 
+  // open mode to answer questions with all the open knowledge
+  const [useOpenMode, setUseOpenMode] = useState(false);
+
   // progress bar
   const [activeFile, setActiveFile] = useState(null);
   const [uploadProgress, setUploadProgress] = useState(0); // 0 to 100%
@@ -164,7 +167,11 @@ export default function ChatUI({ onLogout }) {
       const res = await authFetch(`http://localhost:${API_PORT}/ask`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ question: currentInput, "embedding": selectedEmbedding }),
+        body: JSON.stringify({
+          question: currentInput,
+          "embedding": selectedEmbedding,
+          open_mode: useOpenMode
+        }),
       });
       const data = await res.json();
       if (res.status !== 200) throw new Error(data.error || "Unknown error");
@@ -647,6 +654,21 @@ export default function ChatUI({ onLogout }) {
               Research-GPT {selectedEmbedding && <span className="text-sm text-gray-500 ml-2">({selectedEmbedding})</span>}
             </h1>
 
+            <div className="flex items-center gap-2 mt-4">
+              <span className="text-sm text-gray-700"><label style={{ marginRight: "0.5rem" }}>
+                {useOpenMode ? "🔓 Use LLM freely" : "🔒 Use LLM freely"}
+              </label></span>
+              <button
+                onClick={() => setUseOpenMode(!useOpenMode)}
+                className={`w-10 h-5 flex items-center rounded-full p-1 duration-300 ease-in-out
+                ${useOpenMode ? "bg-green-400" : "bg-gray-300"}`}
+              >
+                <div className={`bg-white w-4 h-4 rounded-full shadow-md transform duration-300
+                    ${useOpenMode ? "translate-x-5" : ""}`}></div>
+              </button>
+            </div>
+
+
             <div>
               <span style={{ marginRight: '1rem' }}>👤 {username}</span>
               <button
@@ -762,9 +784,9 @@ export default function ChatUI({ onLogout }) {
                 ></textarea>
                 <button
                   type="submit"
-                  className="bg-blue-500 text-white px-4 py-2 rounded-lg h-12"
+                  className="bg-blue-500 text-white px-4 py-2 rounded-lg h-18"
                 >
-                  Send
+                  Send<br /> (Ctrl+Enter)
                 </button>
               </form>
             </div>

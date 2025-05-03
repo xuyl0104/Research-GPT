@@ -7,8 +7,8 @@ from passlib.context import CryptContext
 from datetime import datetime, timedelta
 from uuid import UUID
 
-from pgsql.database import get_db
-from pgsql.models import User
+from app.pgsql.database import get_db
+from app.pgsql.models import User
 
 from dotenv import load_dotenv
 

@@ -15,13 +15,17 @@ import re
 import pickle
 import aiohttp
 
-from memory import global_index, global_chunks, embedded_filenames
+from dotenv import load_dotenv
+
+load_dotenv()
+mistralai_api_key = os.getenv("MISTRAL_KEY")
+
 
 # Load API key
-with open("config.json", "r") as file:
-    print("API key loaded")
-    config = json.load(file)
-mistralai_api_key = config.get("api-key")
+# with open("./app/config.json", "r") as file:
+#     print("API key loaded")
+#     config = json.load(file)
+# mistralai_api_key = config.get("api-key")
 client = mistralai.Mistral(api_key=mistralai_api_key)
 
 def extract_text_from_pdf(pdf_path):
@@ -162,7 +166,7 @@ async def run_mistral_async(user_message, model="mistral-large-latest"):
 
 
 async def update_index(documents_dir, chunk_size, save_dir, append=False):
-    import memory
+    import app.memory as memory
     print("Updating index from:", documents_dir)
 
     # Load existing if appending
@@ -218,17 +222,19 @@ async def update_index(documents_dir, chunk_size, save_dir, append=False):
 
 
 async def answer_question(question):
-    from memory import global_index, global_chunks
-    if not global_index or not global_chunks:
+    import app.memory as memory
+    if not memory.global_index or not memory.global_chunks:
+        print("No index loaded.")
         return None, []
+    # print("index loaded.")
     q_embed = await get_text_embedding_async(question)
     query_vec = np.array([np.array(q_embed, dtype=np.float32)])
     faiss.normalize_L2(query_vec)
-    distances, indices = global_index.search(query_vec, k=6)
+    distances, indices = memory.global_index.search(query_vec, k=6)
     evidence = []
     for idx in indices[0]:
-        if 0 <= idx < len(global_chunks):
-            evidence.append(global_chunks[idx])
+        if 0 <= idx < len(memory.global_chunks):
+            evidence.append(memory.global_chunks[idx])
     prompt = f"""
 Below are excerpts extracted from original documents:
 ---------------------
@@ -247,7 +253,7 @@ Answer:
     quoted = [q.strip() for q in quoted if len(q.strip()) > 20]
     filtered = []
     for quote in quoted:
-        for idx, chunk in enumerate(global_chunks):
+        for idx, chunk in enumerate(memory.global_chunks):
             if quote in chunk["text"]:
                 filtered.append({
                     "text": quote,
