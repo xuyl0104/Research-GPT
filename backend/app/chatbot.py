@@ -19,13 +19,9 @@ from dotenv import load_dotenv
 
 load_dotenv()
 mistralai_api_key = os.getenv("MISTRAL_KEY")
+EMBED_SERVER_URL = os.getenv("EMBED_SERVER_URL")
+EMBED_SERVER_PORT = os.getenv("EMBED_SERVER_PORT")
 
-
-# Load API key
-# with open("./app/config.json", "r") as file:
-#     print("API key loaded")
-#     config = json.load(file)
-# mistralai_api_key = config.get("api-key")
 client = mistralai.Mistral(api_key=mistralai_api_key)
 
 def extract_text_from_pdf(pdf_path):
@@ -128,7 +124,7 @@ def load_chunks_from_file(file_path, chunk_size=10240):
 
 async def get_text_embedding_async(input_text):
     # url = "http://host.docker.internal:8000/v1/embeddings"
-    url = "http://128.226.119.122:8000/v1/embeddings"
+    url = f"http://{EMBED_SERVER_URL}:{EMBED_SERVER_PORT}/v1/embeddings"
     headers = {"Content-Type": "application/json"}
     payload = {"input": input_text}
 

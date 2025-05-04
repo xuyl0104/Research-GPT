@@ -26,8 +26,12 @@ import app.memory as memory
 
 from app.aws_s3_utils import upload_pickle_to_s3, download_pickle_from_s3, upload_faiss_to_s3, download_faiss_from_s3, delete_from_s3, s3_key_for
 
-UPLOAD_DIR = "documents"
-EMBEDDING_DIR = "embeddings"
+from dotenv import load_dotenv
+
+load_dotenv()
+
+UPLOAD_DIR = os.getenv("UPLOAD_DIR")
+EMBEDDING_DIR = os.getenv("EMBEDDING_DIR")
 
 app = FastAPI()
 app.include_router(auth_router)

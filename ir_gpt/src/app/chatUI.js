@@ -7,7 +7,6 @@ import 'katex/dist/katex.min.css';
 
 
 const API_PORT = 8000 // fastAPI
-// const API_PORT = 5000 // Flask
 
 export default function ChatUI({ onLogout }) {
   const [files, setFiles] = useState([]);
@@ -472,7 +471,7 @@ export default function ChatUI({ onLogout }) {
           style={{ width: `${sidebarWidth}px` }}
           className="bg-gray-100 border-r p-4 hidden md:flex flex-col relative"
         >
-          <h2 className="text-lg font-semibold mb-4">Uploaded Files</h2>
+          {/* <h2 className="text-lg font-semibold mb-4">Uploaded Files</h2> */}
 
           {/* sidebar-buttons */}
           <div className="space-y-6 mb-6">
@@ -480,7 +479,7 @@ export default function ChatUI({ onLogout }) {
             {/* Group 1: Upload Files + Embedding */}
             <div className="flex gap-x-2">
               <label className="flex-1 bg-blue-500 hover:bg-blue-600 text-white py-2 rounded text-center cursor-pointer flex items-center justify-center gap-2">
-                📁 Upload
+                📁 Files...
                 <input type="file" multiple onChange={handleFileUpload} className="hidden" />
               </label>
 
@@ -695,11 +694,14 @@ export default function ChatUI({ onLogout }) {
                     className={`flex flex-col gap-1 ${msg.from === "user" ? "items-end" : "items-start"}`}
                   >
                     {msg.from === "bot" && (
-                      <img
-                        src={`https://api.dicebear.com/7.x/personas/svg?seed=${msg.from}`}
-                        className="w-8 h-8 rounded-full"
-                        alt={msg.from}
-                      />
+                      <div className="flex items-center gap-1">
+                        <img
+                          src={`https://api.dicebear.com/7.x/personas/svg?seed=${msg.from}`}
+                          className="w-8 h-8 rounded-full"
+                          alt={msg.from}
+                        />
+                        {useOpenMode && <span className="text-lg">👑</span>}
+                      </div>
                     )}
                     <div
                       className={`${msg.from === "user"
