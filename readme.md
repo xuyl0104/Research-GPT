@@ -113,15 +113,36 @@ The **.env** file should at least have the following configs:
 
 ``` yml
 # JWT tokens 
+# JWT tokens 
 SECRET_KEY=
+ALGORITHM=HS256
+ACCESS_TOKEN_EXPIRE_MINUTES=60
 
 # AWS tokens
 AWS_ACCESS_KEY_ID=
 AWS_SECRET_ACCESS_KEY=
-AWS_REGION=
+AWS_S3_BUCKET=research-gpt
+AWS_REGION=us-east-2
 
 # mistral ai API key
 MISTRAL_KEY=
+
+# API port
+API_PORT=8000
+
+# Embedding server IP
+EMBED_SERVER_URL=
+EMBED_SERVER_PORT=8000
+
+# PostgreSQL info
+PGSQL_PORT=5432
+POSTGRES_USER=
+POSTGRES_PASSWORD=
+DATABASE_URL=
+
+# API main
+UPLOAD_DIR=documents
+EMBEDDING_DIR=embeddings
 
 ```
 
