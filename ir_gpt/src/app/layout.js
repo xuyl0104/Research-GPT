@@ -13,7 +13,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata = {
-  title: "InfoRetrieval GPT",
+  title: "Research-GPT",
   description: "GPT taylored for research",
 };
 
