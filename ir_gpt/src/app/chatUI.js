@@ -224,10 +224,25 @@ export default function ChatUI({ onLogout }) {
     setFiles((prev) => prev.filter((file) => !file.selected));
   };
 
-  const handleFileClick = (file) => {
+  const handleFileClick = async (file) => {
+    setActiveFile(file.name);
     setPreviewedFileName(file.name);
-    setPreviewedFileContent(`http://localhost:${API_PORT}/preview-file?filename=${encodeURIComponent(file.name)}&embeddingName=${encodeURIComponent(selectedEmbedding)}`);
+
+    try {
+      const res = await authFetch(
+        `http://localhost:${API_PORT}/preview-file?filename=${encodeURIComponent(file.name)}&embeddingName=${encodeURIComponent(selectedEmbedding)}`
+      );
+      if (!res.ok) throw new Error("Failed to load file");
+
+      const blob = await res.blob();
+      const blobUrl = URL.createObjectURL(blob);
+      setPreviewedFileContent(blobUrl);
+    } catch (err) {
+      console.error("Preview error:", err);
+      setPreviewedFileContent(null);
+    }
   };
+
 
 
   const handleEmbedding = async () => {

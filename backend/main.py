@@ -1,4 +1,5 @@
 import os
+import io
 import shutil
 import json
 import pickle
@@ -24,7 +25,7 @@ from app.pgsql.models import User
 from app.chatbot import extract_text_from_file, split_text, load_document_chunks, load_chunks_from_file, get_text_embedding_async, answer_question, run_mistral_async
 import app.memory as memory
 
-from app.aws_s3_utils import upload_pickle_to_s3, download_pickle_from_s3, upload_faiss_to_s3, download_faiss_from_s3, delete_from_s3, s3_key_for
+from app.aws_s3_utils import s3, AWS_S3_BUCKET, upload_pickle_to_s3, download_pickle_from_s3, upload_faiss_to_s3, download_faiss_from_s3, delete_from_s3, s3_key_for
 
 from dotenv import load_dotenv
 
@@ -82,35 +83,49 @@ async def embed_files(
         db.commit()
         db.refresh(embedding)
 
-    emb_dir = os.path.join(EMBEDDING_DIR, str(user_id), name)
-    docs_dir = os.path.join(emb_dir, "documents")
-    os.makedirs(docs_dir, exist_ok=True)
+    faiss_index_key = s3_key_for(user_id, name, "faiss.index")
+    chunks_pkl_key = s3_key_for(user_id, name, "chunks.pkl")
 
-    existing_files = set()
-    if append and os.path.exists(docs_dir):
-        existing_files = set(os.listdir(docs_dir))
+    # Load previous chunks/index if appending
+    if append:
+        try:
+            old_chunks = download_pickle_from_s3(chunks_pkl_key)
+            old_filenames = {c["filename"] for c in old_chunks}
+            index = download_faiss_from_s3(faiss_index_key)
+        except:
+            old_chunks = []
+            old_filenames = set()
+            index = None
+    else:
+        old_chunks = []
+        old_filenames = set()
+        index = None
 
+    # Read new file contents early to avoid UploadFile closure
     new_files = []
     for file in files:
-        if append and file.filename in existing_files:
+        if file.filename in old_filenames:
             continue
-        save_path = os.path.join(docs_dir, file.filename)
-        with open(save_path, "wb") as f:
-            f.write(await file.read())
-        new_files.append(save_path)
+        contents = await file.read()
+        new_files.append((file.filename, contents))
 
     if not new_files:
         return Response("No new files to embed", media_type="text/plain")
 
-    async def streamer():
+    async def streamer(index, old_chunks):
         all_chunks = []
-        for path in new_files:
-            chunks = extract_text_from_file(path)
-            split_chunks = split_text(chunks, chunk_size=8000)
+
+        # Step 1: Read text and split
+        for filename, contents in new_files:
+            text = extract_text_from_file(contents, filename)
+            if not text:
+                continue
+
+            split_chunks = split_text(text, chunk_size=8000)
             for idx, chunk in enumerate(split_chunks):
                 all_chunks.append({
                     "text": chunk,
-                    "filename": os.path.basename(path),
+                    "filename": filename,
                     "chunk_index": idx
                 })
             yield f"PROGRESS: {len(all_chunks)}/{len(all_chunks)}\n"
@@ -119,27 +134,20 @@ async def embed_files(
             yield "PROGRESS: 0/0\n"
             yield json.dumps({"status": "error", "message": "No valid files found"})
             return
-        
-        faiss_index_key = s3_key_for(user_id, name, "faiss.index")
-        chunks_pkl_key = s3_key_for(user_id, name, "chunks.pkl")
 
-        faiss_path = os.path.join(emb_dir, "faiss.index")
-        chunks_path = os.path.join(emb_dir, "chunks.pkl")
-
-        if append and os.path.exists(faiss_path) and os.path.exists(chunks_path):
-            index = faiss.read_index(faiss_path)
-            with open(chunks_path, "rb") as f:
-                old_chunks = pickle.load(f)
-        else:
-            index = None
-            old_chunks = []
-
+        # Step 2: Embed
         new_embeddings = []
         for idx, chunk in enumerate(all_chunks):
             emb = await get_text_embedding_async(chunk["text"])
             new_embeddings.append(emb)
             yield f"PROGRESS: {idx + 1}/{len(all_chunks)}\n"
 
+        # embedded files uploaded to S3
+        for filename, contents in new_files:
+            s3_key = f"{user_id}/{name}/documents/{filename}"
+            s3.upload_fileobj(io.BytesIO(contents), AWS_S3_BUCKET, s3_key)
+
+        # Step 3: FAISS
         emb_array = np.array(new_embeddings, dtype=np.float32)
         faiss.normalize_L2(emb_array)
 
@@ -154,28 +162,25 @@ async def embed_files(
             ids = np.arange(len(all_chunks)).astype(np.int64)
             index.add_with_ids(emb_array, ids)
 
-        faiss.write_index(index, faiss_path)
-        with open(chunks_path, "wb") as f:
-            pickle.dump(all_chunks, f)
-
-        # Persist embedding file paths
-        # Persist S3 keys to DB
-        embedding.faiss_path = faiss_index_key  # (S3 key in db)
-        embedding.chunks_path = chunks_pkl_key  # (S3 key in db)
-
+        # Step 4: Save to S3
+        embedding.faiss_path = faiss_index_key
+        embedding.chunks_path = chunks_pkl_key
         db.add(embedding)
         db.commit()
 
-        # Upload to S3
         upload_faiss_to_s3(index, faiss_index_key)
         upload_pickle_to_s3(all_chunks, chunks_pkl_key)
 
-        memory.global_index = index
-        memory.global_chunks = all_chunks
+        memory.user_sessions[user_id] = {
+            "chunks": all_chunks,
+            "index": index
+        }
 
         yield json.dumps({"status": "success", "message": "Embedding complete"})
 
-    return StreamingResponse(streamer(), media_type="text/plain")
+    return StreamingResponse(streamer(index, old_chunks), media_type="text/plain")
+
+
 
 
 @app.post("/ask")
@@ -208,13 +213,17 @@ async def ask_question(
     db.add(user_msg)
     db.commit()
 
-        # Generate response based on mode
+    # Generate response based on mode
     if open_mode:
         prompt = f"Answer the following question as best you can using your general knowledge:\n\n{question}\n\nAnswer:"
         answer = await run_mistral_async(prompt)
         evidence = []
     else:
-        answer, evidence = await answer_question(question)
+        session = memory.user_sessions.get(current_user.id)
+        if not session:
+            raise HTTPException(status_code=400, detail="No embedding loaded")
+
+        answer, evidence = await answer_question(question, session["index"], session["chunks"])
 
     if not answer:
         return JSONResponse({"error": "No answer generated"}, status_code=400)
@@ -256,32 +265,44 @@ async def load_embedding(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    embedding = db.query(Embedding).filter_by(user_id=current_user.id, name=name).first()
+    user_id = current_user.id
+    print(f"🟢 Start loading embedding '{name}' for user {user_id}")
+
+    embedding = db.query(Embedding).filter_by(user_id=user_id, name=name).first()
     if not embedding:
         raise HTTPException(status_code=404, detail="Embedding not found")
 
-    local_dir = os.path.join(EMBEDDING_DIR, str(current_user.id), name)
-    chunks_path = os.path.join(local_dir, "chunks.pkl")
-    index_path = os.path.join(local_dir, "faiss.index")
+    print("🧩 Found embedding in DB:")
+    print("  chunks_path:", embedding.chunks_path)
+    print("  faiss_path:", embedding.faiss_path)
 
-    # Prefer local load, fallback to S3
-    if os.path.exists(chunks_path) and os.path.exists(index_path):
-        with open(chunks_path, "rb") as f:
-            chunks = pickle.load(f)
-        index = faiss.read_index(index_path)
-    else:
+    if not embedding.chunks_path or not embedding.faiss_path:
+        raise HTTPException(status_code=400, detail="Embedding paths missing in DB")
+
+    try:
+        print("📥 Downloading chunks from S3...")
         chunks = download_pickle_from_s3(embedding.chunks_path)
-        index = download_faiss_from_s3(embedding.faiss_path)
-        os.makedirs(local_dir, exist_ok=True)
-        with open(chunks_path, "wb") as f:
-            pickle.dump(chunks, f)
-        faiss.write_index(index, index_path)
 
-    memory.global_chunks = chunks
-    memory.global_index = index
+        print("📥 Downloading FAISS index from S3...")
+        index = download_faiss_from_s3(embedding.faiss_path)
+
+        print("🧠 Type of FAISS index:", type(index))
+        if not hasattr(index, "ntotal"):
+            raise ValueError("❌ FAISS index object is invalid (not really an index)")
+
+        print("✅ S3 downloads succeeded")
+    except Exception as e:
+        print(f"❌ S3 download error: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to load embedding from S3: {e}")
+
+    memory.user_sessions[user_id] = {
+        "chunks": chunks,
+        "index": index
+    }
 
     file_names = list({chunk["filename"] for chunk in chunks})
     return {"status": "success", "files": file_names}
+
 
 
 @app.post("/delete-embedding")
@@ -298,10 +319,8 @@ async def delete_embedding(
     db.delete(embedding)
     db.commit()
 
-    # Remove local embedding folder
-    emb_dir = os.path.join(EMBEDDING_DIR, str(current_user.id), name)
-    if os.path.exists(emb_dir):
-        shutil.rmtree(emb_dir)
+    # Remove from memory
+    memory.user_sessions.pop(current_user.id, None)
 
     # Remove from S3
     if embedding.chunks_path:
@@ -342,14 +361,28 @@ async def load_chat(
 
 @app.get("/preview-file")
 async def preview_file(filename: str, embeddingName: str, current_user: User = Depends(get_current_user)):
-    file_dir = os.path.join(EMBEDDING_DIR, str(current_user.id), embeddingName, "documents")
-    if not os.path.exists(os.path.join(file_dir, filename)):
+    from app.aws_s3_utils import download_file_bytes_from_s3
+
+    s3_key = f"{current_user.id}/{embeddingName}/documents/{filename}"
+    try:
+        file_bytes = download_file_bytes_from_s3(s3_key)
+    except Exception:
         raise HTTPException(status_code=404, detail="File not found")
-    return Response(open(os.path.join(file_dir, filename), "rb").read(), media_type="application/octet-stream")
+
+    return Response(file_bytes, media_type="application/octet-stream")
+
 
 @app.get("/preview-chunks")
-async def preview_chunks(filename: str):
-    filepath = os.path.join(UPLOAD_DIR, filename)
-    text = extract_text_from_file(filepath)
+async def preview_chunks(filename: str, embeddingName: str, current_user: User = Depends(get_current_user)):
+    from app.aws_s3_utils import download_file_bytes_from_s3
+
+    s3_key = f"{current_user.id}/{embeddingName}/documents/{filename}"
+    try:
+        file_bytes = download_file_bytes_from_s3(s3_key)
+    except Exception:
+        raise HTTPException(status_code=404, detail="File not found")
+
+    text = extract_text_from_file(file_bytes, filename)
     chunks = split_text(text, 4096)
     return {"chunks": chunks}
+

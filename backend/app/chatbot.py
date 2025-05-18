@@ -1,5 +1,6 @@
 # chatbot.py — with location metadata and answer/evidence matching
 import os
+import io
 import glob
 import json
 import asyncio
@@ -24,66 +25,56 @@ EMBED_SERVER_PORT = os.getenv("EMBED_SERVER_PORT")
 
 client = mistralai.Mistral(api_key=mistralai_api_key)
 
-def extract_text_from_pdf(pdf_path):
-    text = ""
+def extract_text_from_pdf_bytes(file_bytes):
+    from PyPDF2 import PdfReader
     try:
-        with open(pdf_path, 'rb') as f:
-            reader = PyPDF2.PdfReader(f)
-            for page in reader.pages:
-                page_text = page.extract_text()
-                if page_text:
-                    text += page_text + "\n"
+        reader = PdfReader(io.BytesIO(file_bytes))
+        return "\n".join([p.extract_text() for p in reader.pages if p.extract_text()])
     except Exception as e:
-        print(f"Error processing {pdf_path}: {e}")
-    return text
-
-def extract_text_from_docx(docx_path):
-    try:
-        doc = docx.Document(docx_path)
-        return "\n".join([para.text for para in doc.paragraphs])
-    except Exception as e:
-        print(f"Error processing {docx_path}: {e}")
+        print("PDF read error:", e)
         return ""
 
-def extract_text_from_csv(csv_path):
+def extract_text_from_docx_bytes(file_bytes):
     try:
-        df = pd.read_csv(csv_path)
+        doc = docx.Document(io.BytesIO(file_bytes))
+        return "\n".join([p.text for p in doc.paragraphs])
+    except Exception as e:
+        print("DOCX read error:", e)
+        return ""
+
+def extract_text_from_csv_bytes(file_bytes):
+    try:
+        df = pd.read_csv(io.BytesIO(file_bytes))
         return df.to_csv(index=False)
     except Exception as e:
-        print(f"Error processing {csv_path}: {e}")
+        print("CSV read error:", e)
         return ""
 
-def extract_text_from_txt(txt_path):
+def extract_text_from_image_bytes(file_bytes):
     try:
-        with open(txt_path, "r", encoding="utf-8") as f:
-            return f.read()
-    except Exception as e:
-        print(f"Error processing {txt_path}: {e}")
-        return ""
-
-def extract_text_from_image(image_path):
-    try:
-        image = Image.open(image_path)
+        image = Image.open(io.BytesIO(file_bytes))
         return pytesseract.image_to_string(image)
     except Exception as e:
-        print(f"Error processing {image_path}: {e}")
+        print("Image OCR error:", e)
         return ""
 
-def extract_text_from_file(file_path):
-    ext = os.path.splitext(file_path)[-1].lower()
+
+def extract_text_from_file(file_bytes: bytes, filename: str):
+    ext = os.path.splitext(filename)[-1].lower()
     if ext == ".pdf":
-        return extract_text_from_pdf(file_path)
+        return extract_text_from_pdf_bytes(file_bytes)
     elif ext == ".docx":
-        return extract_text_from_docx(file_path)
+        return extract_text_from_docx_bytes(file_bytes)
     elif ext == ".csv":
-        return extract_text_from_csv(file_path)
+        return extract_text_from_csv_bytes(file_bytes)
     elif ext == ".txt":
-        return extract_text_from_txt(file_path)
+        return file_bytes.decode("utf-8", errors="ignore")
     elif ext in [".png", ".jpg", ".jpeg", ".tiff"]:
-        return extract_text_from_image(file_path)
+        return extract_text_from_image_bytes(file_bytes)
     else:
-        print(f"Unsupported file format: {file_path}")
+        print(f"Unsupported file format: {filename}")
         return ""
+
 
 def split_text(text, chunk_size=10240):
     if chunk_size <= 0:
@@ -217,20 +208,19 @@ async def update_index(documents_dir, chunk_size, save_dir, append=False):
 
 
 
-async def answer_question(question):
-    import app.memory as memory
-    if not memory.global_index or not memory.global_chunks:
+async def answer_question(question, index, chunks):
+    if not index or not chunks:
         print("No index loaded.")
         return None, []
-    # print("index loaded.")
+
     q_embed = await get_text_embedding_async(question)
     query_vec = np.array([np.array(q_embed, dtype=np.float32)])
     faiss.normalize_L2(query_vec)
-    distances, indices = memory.global_index.search(query_vec, k=6)
+    distances, indices = index.search(query_vec, k=6)
     evidence = []
     for idx in indices[0]:
-        if 0 <= idx < len(memory.global_chunks):
-            evidence.append(memory.global_chunks[idx])
+        if 0 <= idx < len(chunks):
+            evidence.append(chunks[idx])
     prompt = f"""
 Below are excerpts extracted from original documents:
 ---------------------
@@ -249,7 +239,7 @@ Answer:
     quoted = [q.strip() for q in quoted if len(q.strip()) > 20]
     filtered = []
     for quote in quoted:
-        for idx, chunk in enumerate(memory.global_chunks):
+        for idx, chunk in enumerate(chunks):
             if quote in chunk["text"]:
                 filtered.append({
                     "text": quote,
