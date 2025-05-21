@@ -1,4 +1,4 @@
-name: research_gpt
+name: research_gpt2
 channels:
   - pytorch
   - conda-forge

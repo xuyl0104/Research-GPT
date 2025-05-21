@@ -93,7 +93,7 @@ Hosted in docker.
         conda env create -f environment.yml
 
     - inside the folder /backend, run:
-        uvicorn main:app --reload
+        uvicorn main:app --reload --host 0.0.0.0 --port 8080
 
 Before you run the project, you need to have all the **secret tokens** ready:
 

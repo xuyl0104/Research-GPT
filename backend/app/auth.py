@@ -60,8 +60,19 @@ def register_user(req: RegisterRequest, db: Session = Depends(get_db)):
 
 @router.post("/login", response_model=TokenResponse)
 def login_user(req: LoginRequest, db: Session = Depends(get_db)):
+    print(f"🔐 Login attempt: username={req.username}, password={req.password}")
+
     user = db.query(User).filter(User.username == req.username).first()
-    if not user or not verify_password(req.password, user.password_hash):
+    if not user:
+        print("❌ User not found")
         raise HTTPException(status_code=401, detail="Invalid credentials")
+
+    if not verify_password(req.password, user.password_hash):
+        print("❌ Invalid password")
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+
+    print("✅ Login successful")
+
     token = create_access_token({"sub": str(user.id)})
     return {"access_token": token}
+

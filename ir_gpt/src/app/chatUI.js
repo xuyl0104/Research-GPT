@@ -6,7 +6,8 @@ import rehypeKatex from "rehype-katex";
 import 'katex/dist/katex.min.css';
 
 
-const API_PORT = 8000 // fastAPI
+// const API_PORT = 8000 // fastAPI
+const API_URL = process.env.NEXT_PUBLIC_API_URL;
 
 export default function ChatUI({ onLogout }) {
   const [files, setFiles] = useState([]);
@@ -56,7 +57,7 @@ export default function ChatUI({ onLogout }) {
   useEffect(() => {
     async function fetchUser() {
       try {
-        const res = await fetch(`http://localhost:${API_PORT}/test-auth`, {
+        const res = await fetch(`${API_URL}/test-auth`, {
           headers: {
             Authorization: `Bearer ${localStorage.getItem("token")}`
           }
@@ -163,7 +164,7 @@ export default function ChatUI({ onLogout }) {
     setError(null);
 
     try {
-      const res = await authFetch(`http://localhost:${API_PORT}/ask`, {
+      const res = await authFetch(`${API_URL}/ask`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -230,7 +231,7 @@ export default function ChatUI({ onLogout }) {
 
     try {
       const res = await authFetch(
-        `http://localhost:${API_PORT}/preview-file?filename=${encodeURIComponent(file.name)}&embeddingName=${encodeURIComponent(selectedEmbedding)}`
+        `${API_URL}/preview-file?filename=${encodeURIComponent(file.name)}&embeddingName=${encodeURIComponent(selectedEmbedding)}`
       );
       if (!res.ok) throw new Error("Failed to load file");
 
@@ -270,7 +271,7 @@ export default function ChatUI({ onLogout }) {
     setTotalChunks(0);
 
     try {
-      const res = await authFetch(`http://localhost:${API_PORT}/embed-files`, {
+      const res = await authFetch(`${API_URL}/embed-files`, {
         method: "POST",
         body: formData
       });
@@ -319,7 +320,7 @@ export default function ChatUI({ onLogout }) {
 
   const fetchEmbeddingList = async () => {
     try {
-      const res = await authFetch(`http://localhost:${API_PORT}/list-embeddings`);
+      const res = await authFetch(`${API_URL}/list-embeddings`);
       const data = await res.json();
       if (res.status !== 200) throw new Error(data.error || "Unknown error");
       setEmbeddingList(data.embeddings || []);
@@ -331,7 +332,7 @@ export default function ChatUI({ onLogout }) {
 
   const handleSelectEmbedding = async (name) => {
     try {
-      const res = await authFetch(`http://localhost:${API_PORT}/load-embedding?name=${encodeURIComponent(name)}`);
+      const res = await authFetch(`${API_URL}/load-embedding?name=${encodeURIComponent(name)}`);
       const data = await res.json();
       if (res.status !== 200) throw new Error(data.error || "Unknown error");
       const savedFiles = data.files.map(name => ({ name, path: "", blob: null, existing: true }));
@@ -341,7 +342,7 @@ export default function ChatUI({ onLogout }) {
       setHasLocalUploads(false);
 
       // load the message history
-      const chatRes = await authFetch(`http://localhost:${API_PORT}/load-chat?name=${encodeURIComponent(name)}`);
+      const chatRes = await authFetch(`${API_URL}/load-chat?name=${encodeURIComponent(name)}`);
       const chatData = await chatRes.json();
       if (chatRes.status === 200 && Array.isArray(chatData.messages)) {
         setMessages(chatData.messages);
@@ -380,7 +381,7 @@ export default function ChatUI({ onLogout }) {
     if (!confirmed) return;
 
     try {
-      const res = await authFetch(`http://localhost:${API_PORT}/delete-embedding?name=${encodeURIComponent(selectedEmbedding)}`, {
+      const res = await authFetch(`${API_URL}/delete-embedding?name=${encodeURIComponent(selectedEmbedding)}`, {
         method: "POST"
       });
       const data = await res.json();
@@ -413,7 +414,7 @@ export default function ChatUI({ onLogout }) {
       }, 1500);
     } else if (filename && !loadedFiles.has(filename)) {
       try {
-        const res = await authFetch(`http://localhost:${API_PORT}/preview-chunks?filename=${encodeURIComponent(filename)}`);
+        const res = await authFetch(`${API_URL}/preview-chunks?filename=${encodeURIComponent(filename)}`);
         const data = await res.json();
         if (data.chunks) {
           setSelectedFileChunks(data.chunks);
@@ -463,7 +464,7 @@ export default function ChatUI({ onLogout }) {
   };
 
   const handlePreviewChunks = (file) => {
-    authFetch(`http://localhost:${API_PORT}/preview-chunks?filename=${encodeURIComponent(file.name)}`)
+    authFetch(`${API_URL}/preview-chunks?filename=${encodeURIComponent(file.name)}`)
       .then(res => res.json())
       .then(data => {
         setSelectedFileChunks(data.chunks || []);
