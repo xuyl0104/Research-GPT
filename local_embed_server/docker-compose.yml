@@ -4,6 +4,7 @@ services:
   embed-api:
     build: .
     container_name: embed-server
+    restart: unless-stopped
     ports:
       - "8000:8000"
     volumes:

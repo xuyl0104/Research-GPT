@@ -41,7 +41,8 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "http://127.0.0.1:3334",              # Local development
-        "http://128.226.119.122:3334",        # Server IP
+        "http://137.220.61.33:3334",          # Vultr
+        # "http://128.226.119.122:3334",        # Server IP
     ],
     allow_credentials=True,
     allow_methods=["*"],
